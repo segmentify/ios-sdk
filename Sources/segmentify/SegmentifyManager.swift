@@ -53,6 +53,8 @@ public class SegmentifyManager : NSObject {
     static let impressionStep = "impression"
     static let widgetViewStep = "widget-view"
     static let clickStep = "click"
+    static let pushStep = "push"
+    static let pushClickStep = "push-click"
     static let searchStep = "search"
     static let startIndex = 0
     
@@ -102,6 +104,9 @@ public class SegmentifyManager : NSObject {
     private static let setup = ConfigModel()
     // log status variable. Default: true
     static var logStatus: Bool = true
+    static var authToken: String? {
+        return SegmentifyManager.setup.authToken
+    }
     static var _sessionKeepSecond: Int = 86400
     // set log status
     public class func logStatus(isVisible: Bool) -> Bool{
@@ -114,8 +119,9 @@ public class SegmentifyManager : NSObject {
         return sessionKeepSecond
     }
 
-    public class func setConfig(apiKey: String,dataCenterUrl : String, subDomain : String) {
+    public class func setConfig(apiKey: String? = nil, dataCenterUrl : String, subDomain : String, authToken: String? = nil) {
         SegmentifyManager.setup.apiKey = apiKey
+        SegmentifyManager.setup.authToken = authToken
         SegmentifyManager.setup.dataCenterUrl = dataCenterUrl
         SegmentifyManager.setup.subDomain = subDomain
         segmentifySharedInstance = SegmentifyManager.init()
@@ -132,8 +138,9 @@ public class SegmentifyManager : NSObject {
         return segmentifySharedInstance!
     }
     
-    public class func config(appkey: String, dataCenterUrl: String, subDomain: String) {
+    public class func config(appkey: String? = nil, dataCenterUrl: String, subDomain: String, authToken: String? = nil) {
         SegmentifyManager.setup.apiKey = appkey
+        SegmentifyManager.setup.authToken = authToken
         SegmentifyManager.setup.dataCenterUrl = dataCenterUrl
         SegmentifyManager.setup.subDomain = subDomain
         _ = sharedManager()
@@ -150,11 +157,14 @@ public class SegmentifyManager : NSObject {
         self.eventRequest = SegmentifyRegisterRequest()
         
         let appkey = SegmentifyManager.setup.apiKey
-        guard appkey != nil else {
-            print("Error - you must fill appKey before accessing SegmentifyManager.shared")
+        let authToken = SegmentifyManager.setup.authToken
+        guard appkey != nil || authToken != nil else {
+            print("Error - you must fill either appKey or authToken before accessing SegmentifyManager.shared")
             return
         }
-        eventRequest.apiKey = appkey!
+        if let appkey = appkey {
+            eventRequest.apiKey = appkey
+        }
         
         let subDomain = SegmentifyManager.setup.subDomain
         guard subDomain != nil else {
@@ -979,10 +989,22 @@ public class SegmentifyManager : NSObject {
         
         let encodedData = try? JSONEncoder().encode(segmentifyObject)
         let dataCenter  = SegmentifyManager.setup.dataCenterUrlPush
-        let url = URL(string: dataCenter! + "/native/subscription/push?apiKey=" + SegmentifyManager.setup.apiKey!)!
+        var urlString = dataCenter! + "/native/subscription/push"
+        if let authToken = SegmentifyManager.setup.authToken {
+            // auth token will be used in header
+        } else if let apiKey = SegmentifyManager.setup.apiKey {
+            urlString += "?apiKey=" + apiKey
+        } else {
+            print("Error - you must provide either authToken or apiKey")
+            return
+        }
+        let url = URL(string: urlString)!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let authToken = SegmentifyManager.setup.authToken {
+            request.setValue("Basic \(authToken)", forHTTPHeaderField: "Authorization")
+        }
         request.httpBody = encodedData
         
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
@@ -996,6 +1018,8 @@ public class SegmentifyManager : NSObject {
 
     open func sendNotificationInteraction(segmentifyObject : NotificationModel) {
         
+        print("[Segmentify] sendNotificationInteraction called - type: \(segmentifyObject.type?.rawValue ?? "nil"), instanceId: \(segmentifyObject.instanceId ?? "nil"), interactionId: \(segmentifyObject.interactionId ?? "nil")")
+        
         if(SegmentifyManager.setup.dataCenterUrlPush == nil || SegmentifyManager.setup.dataCenterUrlPush == ""){
             print("Error - you must set dataCenterUrlPush in setConfig before accessing sendNotificationInteraction event")
             return
@@ -1007,6 +1031,7 @@ public class SegmentifyManager : NSObject {
                 print("Error - you must fill instanceId or deviceToken before accessing sendNotification view event")
                 return
             }
+            print("[Segmentify] Notification VIEW event - instanceId: \(instanceId!)")
         }
 
         if(segmentifyObject.type == NotificationType.CLICK){
@@ -1020,19 +1045,37 @@ public class SegmentifyManager : NSObject {
 
             UserDefaults.standard.set(segmentifyObject.instanceId, forKey: "SEGMENTIFY_PUSH_CAMPAIGN_ID")
             
-            let model  = InteractionModel()
-            model.instanceId = instanceId
-            model.interactionId = instanceId
+            let interactionId = segmentifyObject.interactionId ?? instanceId!
 
-            sendClick(segmentifyObject: model)
+            // Option B - SFY-20518
+            // 1. Send type: "push-click" for click metrics (deduplicated)
+            self.sendInteractionEvent(type: SegmentifyManager.pushClickStep, instanceId: instanceId!, interactionId: interactionId)
+            
+            // 2. Send type: "push" for attribution (stamps user record)
+            self.sendInteractionEvent(type: SegmentifyManager.pushStep, instanceId: instanceId!, interactionId: interactionId)
+            
+            // In Option B, we don't call the native endpoint for clicks.
+            return
         }
 
         let encodedData = try? JSONEncoder().encode(segmentifyObject)
         let dataCenter  = SegmentifyManager.setup.dataCenterUrlPush
-        let url = URL(string: dataCenter!  + "/native/interaction/notification?apiKey=" + SegmentifyManager.setup.apiKey!)!
+        var urlString = dataCenter! + "/native/interaction/notification"
+        if let authToken = SegmentifyManager.setup.authToken {
+            // auth token will be used in header
+        } else if let apiKey = SegmentifyManager.setup.apiKey {
+            urlString += "?apiKey=" + apiKey
+        } else {
+            print("Error - you must provide either authToken or apiKey")
+            return
+        }
+        let url = URL(string: urlString)!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let authToken = SegmentifyManager.setup.authToken {
+            request.setValue("Basic \(authToken)", forHTTPHeaderField: "Authorization")
+        }
         request.httpBody = encodedData
 
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
@@ -1844,6 +1887,24 @@ public class SegmentifyManager : NSObject {
     func sendClick(segmentifyObject : InteractionModel) {
         eventRequest.eventName = SegmentifyManager.interactionEventName
         eventRequest.userOperationStep = SegmentifyManager.clickStep
+    }
+    
+    private func sendInteractionEvent(type: String, instanceId: String, interactionId: String) {
+        eventRequest.eventName = SegmentifyManager.interactionEventName
+        eventRequest.type = type
+        eventRequest.instanceId = instanceId
+        eventRequest.interactionId = interactionId
+        eventRequest.oldUserId = nil
+        
+        if let userSentId = UserDefaults.standard.object(forKey: "UserSentUserId") as? String {
+            eventRequest.userID = userSentId
+        } else if let segmentifyUserId = UserDefaults.standard.object(forKey: "SEGMENTIFY_USER_ID") as? String {
+            eventRequest.userID = segmentifyUserId
+        }
+        
+        print("[Segmentify] Sending interaction event - type: \(type), instanceId: \(instanceId), interactionId: \(interactionId), userId: \(eventRequest.userID ?? "nil"), sessionId: \(eventRequest.sessionID ?? "nil")")
+        
+        setIDAndSendEvent()
     }
     
     //Alternative Events
