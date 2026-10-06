@@ -27,9 +27,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         }
 
         // Segmentify configuration
-        SegmentifyManager.config(appkey: "3c9e211a-d049-43d5-aa4a-f98b7e66e482",
+        SegmentifyManager.config(appkey: "2031ce11-59e2-aec3-39f2-3adc60252339",
                                  dataCenterUrl: "https://push-notification-api.preprod.cloud.unifonic.com",
-                                 subDomain: "demosfy.com",
+                                 subDomain: "push-sfy-web.int.oci.ruh.dev.unifonic.com",
                                  authToken: "ZTc5NmJlNGUtNjExNi00Y2Y4LTgyYjgtNDIxMGEzNjNkMWJlOlhtU09WbjJhMjNVOGhjV0xDNVlraDd3S0ZYblBpZUhx")
         SegmentifyManager.setPushConfig(dataCenterUrlPush: "https://push-notification-api.preprod.cloud.unifonic.com")
         _ = SegmentifyManager.logStatus(isVisible: true)
@@ -73,7 +73,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         obj.instanceId = instanceId
         obj.image = userInfo["image"] as? String
         obj.icon = userInfo["icon"] as? String
-        SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
+        SegmentifyManager.sharedManager().sendNotificationInteraction(segmentifyObject: obj)
 
         completionHandler([.banner, .sound, .badge])
     }
@@ -90,8 +90,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
         // Handle Deep Link
         if let deepLinkString = userInfo["deeplink"] as? String,
-           let url = URL(string: deepLinkString) {
-            UIApplication.shared.open(url)
+           var components = URLComponents(string: deepLinkString) {
+            var queryItems = components.queryItems ?? []
+            if let image = userInfo["image"] as? String {
+                queryItems.append(URLQueryItem(name: "image", value: image))
+            }
+            if let icon = userInfo["icon"] as? String {
+                queryItems.append(URLQueryItem(name: "icon", value: icon))
+            }
+            components.queryItems = queryItems
+            if let finalUrl = components.url {
+                DispatchQueue.main.async {
+                    UIApplication.shared.open(finalUrl)
+                }
+            }
         }
 
         let obj = NotificationModel()
@@ -100,7 +112,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         obj.instanceId = instanceId
         obj.image = userInfo["image"] as? String
         obj.icon = userInfo["icon"] as? String
-        SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
+        SegmentifyManager.sharedManager().sendNotificationInteraction(segmentifyObject: obj)
 
         completionHandler()
     }

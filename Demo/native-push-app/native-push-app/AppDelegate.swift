@@ -11,8 +11,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
         // Segmentify Config
         // Change your appKey, dataCenterUrl and subDomain values with suitable one
-        SegmentifyManager.config(appkey: "5c571072-068e-40c5-8dbc-d8448158de19", dataCenterUrl: "https://gandalf-qa.segmentify.com", subDomain: "demo.segmentify.com")
-        SegmentifyManager.setPushConfig(dataCenterUrlPush: "https://gimli-qa.segmentify.com")
+        SegmentifyManager.config(appkey: "2031ce11-59e2-aec3-39f2-3adc60252339",
+                                 dataCenterUrl: "https://push-notification-api.preprod.cloud.unifonic.com",
+                                 subDomain: "push-sfy-web.int.oci.ruh.dev.unifonic.com",
+                                 authToken: "ZTc5NmJlNGUtNjExNi00Y2Y4LTgyYjgtNDIxMGEzNjNkMWJlOlhtU09WbjJhMjNVOGhjV0xDNVlraDd3S0ZYblBpZUhx")
+        SegmentifyManager.setPushConfig(dataCenterUrlPush: "https://push-notification-api.preprod.cloud.unifonic.com")
         let _ = SegmentifyManager.logStatus(isVisible: true)
         let _ = SegmentifyManager.setSessionKeepSecond(sessionKeepSecond: 604800)
 
@@ -56,7 +59,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         obj.instanceId = userInfo["instanceId"] as? String ?? ""
         obj.image = userInfo["image"] as? String
         obj.icon = userInfo["icon"] as? String
-        SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
+        SegmentifyManager.sharedManager().sendNotificationInteraction(segmentifyObject: obj)
         completionHandler([.banner, .sound, .badge])
     }
 
@@ -88,13 +91,12 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         }
         
         let obj = NotificationModel()
-        obj.deviceToken = ""
         obj.type = NotificationType.CLICK
         obj.providerType = ProviderType.FIREBASE
         obj.instanceId = userInfo["instanceId"] as? String ?? ""
         obj.image = userInfo["image"] as? String
         obj.icon = userInfo["icon"] as? String
-        SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
+        SegmentifyManager.sharedManager().sendNotificationInteraction(segmentifyObject: obj)
         
         completionHandler()
     }
@@ -111,7 +113,6 @@ extension AppDelegate: MessagingDelegate {
         obj.deviceToken = fcmToken ?? ""
         obj.type = NotificationType.PERMISSION_INFO
         obj.providerType = ProviderType.FIREBASE
-        obj.userId = "2"
         SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
     }
 }
