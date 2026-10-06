@@ -1007,6 +1007,10 @@ public class SegmentifyManager : NSObject {
         }
         request.httpBody = encodedData
         
+        if let bodyData = encodedData, let bodyString = String(data: bodyData, encoding: .utf8) {
+            print("[Segmentify] sendNotification payload - URL: \(urlString), body: \(bodyString)")
+        }
+        
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             guard let _ = data, error == nil else {
                 print(error?.localizedDescription ?? "No data")
@@ -1077,6 +1081,10 @@ public class SegmentifyManager : NSObject {
             request.setValue("Basic \(authToken)", forHTTPHeaderField: "Authorization")
         }
         request.httpBody = encodedData
+        
+        if let bodyData = encodedData, let bodyString = String(data: bodyData, encoding: .utf8) {
+            print("[Segmentify] VIEW endpoint payload - URL: \(urlString), body: \(bodyString)")
+        }
 
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             guard let _ = data, error == nil else {

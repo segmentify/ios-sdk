@@ -28,9 +28,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
         // Segmentify configuration
         SegmentifyManager.config(appkey: "3c9e211a-d049-43d5-aa4a-f98b7e66e482",
-                                 dataCenterUrl: "https://gandalf-qa.segmentify.com",
-                                 subDomain: "demosfy.com")
-        SegmentifyManager.setPushConfig(dataCenterUrlPush: "https://gimli-qa.segmentify.com")
+                                 dataCenterUrl: "https://push-notification-api.preprod.cloud.unifonic.com",
+                                 subDomain: "demosfy.com",
+                                 authToken: "ZTc5NmJlNGUtNjExNi00Y2Y4LTgyYjgtNDIxMGEzNjNkMWJlOlhtU09WbjJhMjNVOGhjV0xDNVlraDd3S0ZYblBpZUhx")
+        SegmentifyManager.setPushConfig(dataCenterUrlPush: "https://push-notification-api.preprod.cloud.unifonic.com")
         _ = SegmentifyManager.logStatus(isVisible: true)
         _ = SegmentifyManager.setSessionKeepSecond(sessionKeepSecond: 604800)
 
@@ -70,6 +71,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         obj.type = NotificationType.VIEW
         obj.providerType = ProviderType.APNS
         obj.instanceId = instanceId
+        obj.image = userInfo["image"] as? String
+        obj.icon = userInfo["icon"] as? String
         SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
 
         completionHandler([.banner, .sound, .badge])
@@ -85,10 +88,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
         let instanceId = userInfo["instanceId"] as? String ?? ""
 
+        // Handle Deep Link
+        if let deepLinkString = userInfo["deeplink"] as? String,
+           let url = URL(string: deepLinkString) {
+            UIApplication.shared.open(url)
+        }
+
         let obj = NotificationModel()
         obj.type = NotificationType.CLICK
         obj.providerType = ProviderType.APNS
         obj.instanceId = instanceId
+        obj.image = userInfo["image"] as? String
+        obj.icon = userInfo["icon"] as? String
         SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
 
         completionHandler()

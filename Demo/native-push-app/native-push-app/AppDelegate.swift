@@ -54,6 +54,8 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         obj.type = NotificationType.VIEW
         obj.providerType = ProviderType.FIREBASE
         obj.instanceId = userInfo["instanceId"] as? String ?? ""
+        obj.image = userInfo["image"] as? String
+        obj.icon = userInfo["icon"] as? String
         SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
         completionHandler([.banner, .sound, .badge])
     }
@@ -68,8 +70,13 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
            var components = URLComponents(string: deepLinkString) {
             var queryItems = components.queryItems ?? []
             let image = userInfo["image"] as? String
-            let newQueryItem = URLQueryItem(name: "image", value: image)
-            queryItems.append(newQueryItem)
+            let icon = userInfo["icon"] as? String
+            if let image = image {
+                queryItems.append(URLQueryItem(name: "image", value: image))
+            }
+            if let icon = icon {
+                queryItems.append(URLQueryItem(name: "icon", value: icon))
+            }
             components.queryItems = queryItems
             if let finalUrl = components.url {
                 DispatchQueue.main.async {
@@ -85,6 +92,8 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         obj.type = NotificationType.CLICK
         obj.providerType = ProviderType.FIREBASE
         obj.instanceId = userInfo["instanceId"] as? String ?? ""
+        obj.image = userInfo["image"] as? String
+        obj.icon = userInfo["icon"] as? String
         SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
         
         completionHandler()

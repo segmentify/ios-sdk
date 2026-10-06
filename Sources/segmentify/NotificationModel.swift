@@ -17,6 +17,8 @@ public class NotificationModel: Codable {
     public var params:[String:String] = [String:String]()
     public var userId : String?
     public var providerType:ProviderType?
+    public var image: String?
+    public var icon: String?
     private var email:String?
     private var userName:String?
     private var osVersion:String?
