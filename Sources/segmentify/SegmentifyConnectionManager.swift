@@ -8,6 +8,7 @@ class SegmentifyConnectionManager : NSObject, URLSessionDelegate  {
     
     static let timeoutInterval = 10
     static let baseUrl = "/add/events/v1.json?apiKey="
+    static let baseUrlNoApiKey = "/add/events/v1.json"
     
     static let sharedInstance : SegmentifyConnectionManager = {
         let shareManager = SegmentifyConnectionManager()
@@ -76,7 +77,12 @@ class SegmentifyConnectionManager : NSObject, URLSessionDelegate  {
     func request<R: SegmentifyRequestProtocol>(requestModel: R, success: @escaping (_ response: [String:AnyObject]) -> Void, failure: @escaping (_ error: Error) -> Void) {
         
         var url: URL?
-        url = URL.init(string: "\(requestModel.dataCenterUrl)\(SegmentifyConnectionManager.baseUrl)\(requestModel.apiKey)")
+        let authToken = SegmentifyManager.authToken
+        if authToken != nil {
+            url = URL.init(string: "\(requestModel.dataCenterUrl)\(SegmentifyConnectionManager.baseUrlNoApiKey)")
+        } else {
+            url = URL.init(string: "\(requestModel.dataCenterUrl)\(SegmentifyConnectionManager.baseUrl)\(requestModel.apiKey)")
+        }
         
         if SegmentifyManager.logStatus == true {
             print("URL : \(String(describing: url!))")
@@ -87,6 +93,9 @@ class SegmentifyConnectionManager : NSObject, URLSessionDelegate  {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(requestModel.subdomain, forHTTPHeaderField: "Origin")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let authToken = authToken {
+            request.setValue("Basic \(authToken)", forHTTPHeaderField: "Authorization")
+        }
         request.timeoutInterval = TimeInterval(SegmentifyConnectionManager.timeoutInterval)
         if SegmentifyManager.logStatus == true {
             print("request header : \(String(describing: (request.allHTTPHeaderFields)!))")
