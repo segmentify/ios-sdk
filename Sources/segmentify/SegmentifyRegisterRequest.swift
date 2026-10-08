@@ -12,7 +12,8 @@ public class SegmentifyRegisterRequest : NSObject,SegmentifyRequestProtocol {
     var method = "POST"
     var subdomain = ""
     var dataCenterUrl:String = ""
-    var apiKey:String = ""
+    var apiKey:String?
+    var authHeader:String?
     
     var segmentifyObj:SegmentifyObject?
     
@@ -83,6 +84,8 @@ public class SegmentifyRegisterRequest : NSObject,SegmentifyRequestProtocol {
     var params:[String:AnyObject]?
     var instanceId:String?
     var interactionId:String?
+    var deeplink:String?
+    var icon:String?
     var noUpdate:Bool?
     var testMode:Bool?
     var query:String?
@@ -134,7 +137,7 @@ public class SegmentifyRegisterRequest : NSObject,SegmentifyRequestProtocol {
     
     init(withDictionary dictionary: Dictionary<AnyHashable, Any>) {
         self.token = dictionary["token"] as? String
-        self.apiKey = (dictionary["apiKey"] as? String)!
+        self.apiKey = dictionary["apiKey"] as? String
         self.os = dictionary["os"] as? String
         self.osVersion = dictionary["osVersion"] as? String
         self.deviceType = dictionary["deviceType"] as? String
@@ -527,8 +530,12 @@ public class SegmentifyRegisterRequest : NSObject,SegmentifyRequestProtocol {
 
         if self.eventName == "INTERACTION" {
             dictionary["interactionId"] = interactionId
+            dictionary["deeplink"] = deeplink
+            dictionary["icon"] = icon
         } else {
             dictionary["interactionId"] = nil
+            dictionary["deeplink"] = nil
+            dictionary["icon"] = nil
         }
 
         if self.eventName == "INTERACTION" {

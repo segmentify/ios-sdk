@@ -9,4 +9,5 @@ class ConfigModel:NSObject {
     var dataCenterUrl:String?
     var dataCenterUrlPush:String?
     var subDomain:String?
+    var authHeader:String?
 }

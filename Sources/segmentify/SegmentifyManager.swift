@@ -6,6 +6,7 @@ import Foundation
 #if canImport(UIKit)
 import UIKit
 #endif
+import UserNotifications
 
 enum SearchCodingKeys: String, CodingKey {
     case search
@@ -120,10 +121,11 @@ public class SegmentifyManager : NSObject {
         return sessionKeepSecond
     }
 
-    public class func setConfig(apiKey: String,dataCenterUrl : String, subDomain : String) {
+    public class func setConfig(apiKey: String?, dataCenterUrl : String, subDomain : String, authHeader: String? = nil) {
         SegmentifyManager.setup.apiKey = apiKey
         SegmentifyManager.setup.dataCenterUrl = dataCenterUrl
         SegmentifyManager.setup.subDomain = subDomain
+        SegmentifyManager.setup.authHeader = authHeader
         segmentifySharedInstance = SegmentifyManager.init()
     }
     
@@ -154,13 +156,20 @@ public class SegmentifyManager : NSObject {
     override init() {
         super.init()
         self.eventRequest = SegmentifyRegisterRequest()
-        
+
+        let authHeader = SegmentifyManager.setup.authHeader
+        eventRequest.authHeader = authHeader
         let appkey = SegmentifyManager.setup.apiKey
-        guard appkey != nil else {
-            print("Error - you must fill appKey before accessing SegmentifyManager.shared")
-            return
+        
+        if authHeader == nil {
+            guard appkey != nil else {
+                print("Error - you must fill appKey before accessing SegmentifyManager.shared")
+                return
+            }
+            eventRequest.apiKey = appkey!
+        } else {
+            eventRequest.apiKey = appkey
         }
-        eventRequest.apiKey = appkey!
         
         let subDomain = SegmentifyManager.setup.subDomain
         guard subDomain != nil else {
@@ -985,10 +994,21 @@ public class SegmentifyManager : NSObject {
 
         let encodedData = SegmentifyManager.subscriptionBody(for: segmentifyObject)
         let dataCenter  = SegmentifyManager.setup.dataCenterUrlPush
-        let url = URL(string: dataCenter! + "/native/subscription/push?apiKey=" + SegmentifyManager.setup.apiKey!)!
+        
+        var urlString = dataCenter! + "/native/subscription/push"
+        if let authHeader = SegmentifyManager.setup.authHeader {
+            // No apiKey in URL if authHeader is provided
+        } else {
+            urlString += "?apiKey=" + SegmentifyManager.setup.apiKey!
+        }
+        
+        let url = URL(string: urlString)!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let authHeader = SegmentifyManager.setup.authHeader {
+            request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        }
         request.httpBody = encodedData
         
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
@@ -1035,10 +1055,21 @@ public class SegmentifyManager : NSObject {
 
         let encodedData = try? JSONEncoder().encode(segmentifyObject)
         let dataCenter  = SegmentifyManager.setup.dataCenterUrlPush
-        let url = URL(string: dataCenter!  + "/native/interaction/notification?apiKey=" + SegmentifyManager.setup.apiKey!)!
+        
+        var urlString = dataCenter! + "/native/interaction/notification"
+        if let authHeader = SegmentifyManager.setup.authHeader {
+            // No apiKey in URL if authHeader is provided
+        } else {
+            urlString += "?apiKey=" + SegmentifyManager.setup.apiKey!
+        }
+        
+        let url = URL(string: urlString)!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let authHeader = SegmentifyManager.setup.authHeader {
+            request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        }
         request.httpBody = encodedData
 
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
@@ -1091,6 +1122,96 @@ public class SegmentifyManager : NSObject {
 
     open func getTrackingParameters()->UtmModel{
         return UtmModel()
+    }
+
+    // MARK: - Push Notification Handling
+
+    /// Call from your `UNNotificationServiceExtension`'s `didReceive(_:withContentHandler:)`
+    /// to automatically download and attach the image from the Segmentify push payload.
+    ///
+    /// Example:
+    /// ```
+    /// override func didReceive(_ request: UNNotificationRequest,
+    ///                          withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
+    ///     SegmentifyManager.sharedManager().handlePushNotificationExtension(
+    ///         request: request,
+    ///         contentHandler: contentHandler
+    ///     )
+    /// }
+    /// ```
+    open func handlePushNotificationExtension(
+        request: UNNotificationRequest,
+        contentHandler: @escaping (UNNotificationContent) -> Void
+    ) {
+        SegmentifyPushNotificationHandler.handleNotificationServiceExtension(
+            request: request,
+            contentHandler: contentHandler
+        )
+    }
+
+    /// Call from `userNotificationCenter(_:didReceive:withCompletionHandler:)` to handle
+    /// deeplink navigation and send click interaction automatically.
+    ///
+    /// - Parameters:
+    ///   - response: The notification response from the delegate callback.
+    ///   - completion: Called after processing is complete.
+    ///
+    /// This method:
+    /// 1. Parses the Segmentify payload
+    /// 2. Sends a CLICK interaction event
+    /// 3. Opens the deeplink URL natively via `UIApplication.shared.open(_:)`
+    ///    (uses the `deeplink` field first, falls back to `redirectUrl`)
+    ///
+    /// Example:
+    /// ```
+    /// func userNotificationCenter(_ center: UNUserNotificationCenter,
+    ///                             didReceive response: UNNotificationResponse,
+    ///                             withCompletionHandler completionHandler: @escaping () -> Void) {
+    ///     SegmentifyManager.sharedManager().handlePushNotificationResponse(
+    ///         response: response,
+    ///         completion: completionHandler
+    ///     )
+    /// }
+    /// ```
+    open func handlePushNotificationResponse(
+        response: UNNotificationResponse,
+        completion: @escaping () -> Void
+    ) {
+        let userInfo = response.notification.request.content.userInfo
+        let payload = SegmentifyPushNotificationHandler.parsePayload(userInfo: userInfo)
+
+        guard payload.isSegmentifyNotification else {
+            completion()
+            return
+        }
+
+        // Send CLICK interaction
+        if let instanceId = payload.instanceId {
+            let obj = NotificationModel()
+            obj.type = NotificationType.CLICK
+            obj.instanceId = instanceId
+            sendNotificationInteraction(segmentifyObject: obj)
+        }
+
+        // Open deeplink natively
+        if let url = payload.effectiveLink {
+            DispatchQueue.main.async {
+                #if canImport(UIKit)
+                UIApplication.shared.open(url, options: [:]) { _ in
+                    completion()
+                }
+                #else
+                completion()
+                #endif
+            }
+        } else {
+            completion()
+        }
+    }
+
+    /// Returns the parsed Segmentify push payload from a notification's userInfo.
+    open func parsePushPayload(userInfo: [AnyHashable: Any]) -> SegmentifyPushPayload {
+        return SegmentifyPushNotificationHandler.parsePayload(userInfo: userInfo)
     }
 
     //EVENTS
@@ -2658,6 +2779,9 @@ public class SegmentifyManager : NSObject {
             requestURL = URL(string: dataCenterUrl + "/get/key?count=2")!
         }
         let urlRequest: NSMutableURLRequest = NSMutableURLRequest(url: requestURL)
+        if let authHeader = SegmentifyManager.setup.authHeader {
+            urlRequest.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        }
         let task = SegmentifyConnectionManager.urlSession.dataTask(with: urlRequest as URLRequest) {
             (data, response, error) -> Void in
             
@@ -2782,6 +2906,7 @@ extension SegmentifyManager: CdpSessionResolving, CdpRequestBuilding {
     func makeCdpRequest() -> SegmentifyRegisterRequest {
         let request = SegmentifyRegisterRequest()
         request.apiKey = eventRequest.apiKey
+        request.authHeader = eventRequest.authHeader
         request.dataCenterUrl = eventRequest.dataCenterUrl
         request.subdomain = eventRequest.subdomain
         request.sdkVersion = eventRequest.sdkVersion

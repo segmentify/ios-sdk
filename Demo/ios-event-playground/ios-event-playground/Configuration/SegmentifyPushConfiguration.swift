@@ -3,17 +3,19 @@ import Segmentify
 
 /// Segmentify + Firebase push settings from `Demo/native-push-app`.
 enum SegmentifyPushConfiguration {
-    static let apiKey = "5c571072-068e-40c5-8dbc-d8448158de19"
-    static let dataCenterUrl = "https://gandalf-qa.segmentify.com"
-    static let pushDataCenterUrl = "https://gimli-qa.segmentify.com"
-    static let subDomain = "demo.segmentify.com"
+    static let apiKey: String? = nil
+    static let authHeader = "Basic ZTc5NmJlNGUtNjExNi00Y2Y4LTgyYjgtNDIxMGEzNjNkMWJlOlhtU09WbjJhMjNVOGhjV0xDNVlraDd3S0ZYblBpZUhx"
+    static let dataCenterUrl = "https://push-notification-api.preprod.cloud.unifonic.com"
+    static let pushDataCenterUrl = "https://push-notification-api.preprod.cloud.unifonic.com"
+    static let subDomain = "push-sfy-web.int.oci.ruh.dev.unifonic.com"
     static let permissionInfoUserId = "2"
 
     static func apply() {
-        SegmentifyManager.config(
-            appkey: apiKey,
+        SegmentifyManager.setConfig(
+            apiKey: apiKey,
             dataCenterUrl: dataCenterUrl,
-            subDomain: subDomain
+            subDomain: subDomain,
+            authHeader: authHeader
         )
         SegmentifyManager.setPushConfig(dataCenterUrlPush: pushDataCenterUrl)
     }

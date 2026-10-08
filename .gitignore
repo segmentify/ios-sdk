@@ -1,4 +1,5 @@
 .build/
+.idea
 
 /Example/Pods/
 /Example/build

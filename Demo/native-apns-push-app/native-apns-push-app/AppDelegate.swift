@@ -27,10 +27,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         }
 
         // Segmentify configuration
-        SegmentifyManager.config(appkey: "3c9e211a-d049-43d5-aa4a-f98b7e66e482",
-                                 dataCenterUrl: "https://gandalf-qa.segmentify.com",
-                                 subDomain: "demosfy.com")
-        SegmentifyManager.setPushConfig(dataCenterUrlPush: "https://gimli-qa.segmentify.com")
+        SegmentifyManager.setConfig(apiKey: nil,
+                                 dataCenterUrl: "https://push-notification-api.preprod.cloud.unifonic.com",
+                                 subDomain: "push-sfy-web.int.oci.ruh.dev.unifonic.com",
+                                 authHeader: "Basic ZTc5NmJlNGUtNjExNi00Y2Y4LTgyYjgtNDIxMGEzNjNkMWJlOlhtU09WbjJhMjNVOGhjV0xDNVlraDd3S0ZYblBpZUhx")
+        SegmentifyManager.setPushConfig(dataCenterUrlPush: "https://push-notification-api.preprod.cloud.unifonic.com")
         _ = SegmentifyManager.logStatus(isVisible: true)
         _ = SegmentifyManager.setSessionKeepSecond(sessionKeepSecond: 604800)
 
@@ -63,8 +64,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
 
-        let payload = SegmentifyPushPayload(userInfo: notification.request.content.userInfo)
-        SegmentifyManager.sharedManager().handlePushReceived(payload)
+        let userInfo = notification.request.content.userInfo
+        let obj = NotificationModel()
+        obj.instanceId = userInfo["instanceId"] as? String ?? ""
+        obj.type = NotificationType.VIEW
+        obj.providerType = ProviderType.APNS
+        SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
 
         completionHandler([.banner, .sound, .badge])
     }
@@ -73,13 +78,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-
-        let userInfo = response.notification.request.content.userInfo
-        print("Notification tapped (APNs), userInfo: \(userInfo)")
-
-        let payload = SegmentifyPushPayload(userInfo: userInfo)
-        SegmentifyManager.sharedManager().handlePushClicked(payload)
-
-        completionHandler()
+        SegmentifyManager.sharedManager().handlePushNotificationResponse(
+            response: response,
+            completion: completionHandler
+        )
     }
 }
