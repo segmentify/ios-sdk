@@ -4,6 +4,7 @@
 
 import Foundation
 import UserNotifications
+import UniformTypeIdentifiers
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -117,6 +118,7 @@ public class SegmentifyPushNotificationHandler {
 
             let pathExt = url.pathExtension.lowercased()
             let ext: String
+            let typeHint: String
             if ["png", "jpg", "jpeg", "gif"].contains(pathExt) {
                 ext = "." + pathExt
             } else if let mimeType = response?.mimeType?.lowercased() {
@@ -128,6 +130,22 @@ public class SegmentifyPushNotificationHandler {
                 ext = ".png"
             }
 
+            if #available(iOS 14.0, *) {
+                switch ext {
+                case ".png": typeHint = UTType.png.identifier
+                case ".jpg", ".jpeg": typeHint = UTType.jpeg.identifier
+                case ".gif": typeHint = UTType.gif.identifier
+                default: typeHint = UTType.png.identifier
+                }
+            } else {
+                switch ext {
+                case ".png": typeHint = "public.png"
+                case ".jpg", ".jpeg": typeHint = "public.jpeg"
+                case ".gif": typeHint = "com.compuserve.gif"
+                default: typeHint = "public.png"
+                }
+            }
+
             let tmpFile = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ext)
 
             do {
@@ -135,7 +153,7 @@ public class SegmentifyPushNotificationHandler {
                 let attachment = try UNNotificationAttachment(
                     identifier: "segmentify-image",
                     url: tmpFile,
-                    options: nil
+                    options: [UNNotificationAttachmentOptionsTypeHintKey: typeHint]
                 )
                 content.attachments = [attachment]
             } catch {
