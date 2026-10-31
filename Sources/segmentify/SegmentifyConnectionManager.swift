@@ -76,11 +76,9 @@ class SegmentifyConnectionManager : NSObject, URLSessionDelegate  {
     func request<R: SegmentifyRequestProtocol>(requestModel: R, success: @escaping (_ response: [String:AnyObject]) -> Void, failure: @escaping (_ error: Error) -> Void) {
         
         var url: URL?
-        if let authHeader = requestModel.authHeader {
-            url = URL.init(string: "\(requestModel.dataCenterUrl)\(SegmentifyConnectionManager.baseUrl)")
-        } else {
-            url = URL.init(string: "\(requestModel.dataCenterUrl)\(SegmentifyConnectionManager.baseUrl)?apiKey=\(requestModel.apiKey ?? "")")
-        }
+        url = SegmentifyAuth.url("\(requestModel.dataCenterUrl)\(SegmentifyConnectionManager.baseUrl)",
+                                 apiKey: requestModel.apiKey,
+                                 authorization: requestModel.authHeader)
         
         if SegmentifyManager.logStatus == true {
             print("URL : \(String(describing: url!))")

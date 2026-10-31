@@ -125,7 +125,8 @@ public class SegmentifyManager : NSObject {
         SegmentifyManager.setup.apiKey = apiKey
         SegmentifyManager.setup.dataCenterUrl = dataCenterUrl
         SegmentifyManager.setup.subDomain = subDomain
-        SegmentifyManager.setup.authHeader = authHeader
+        // Stored as the full header value ("Basic <token>"); blank means not set
+        SegmentifyManager.setup.authHeader = SegmentifyAuth.authorizationValue(authHeader)
         segmentifySharedInstance = SegmentifyManager.init()
     }
     
@@ -160,16 +161,11 @@ public class SegmentifyManager : NSObject {
         let authHeader = SegmentifyManager.setup.authHeader
         eventRequest.authHeader = authHeader
         let appkey = SegmentifyManager.setup.apiKey
-        
-        if authHeader == nil {
-            guard appkey != nil else {
-                print("Error - you must fill appKey before accessing SegmentifyManager.shared")
-                return
-            }
-            eventRequest.apiKey = appkey!
-        } else {
-            eventRequest.apiKey = appkey
+        guard authHeader != nil || appkey?.isEmpty == false else {
+            print("Error - you must set apiKey or authHeader in setConfig before accessing SegmentifyManager.shared")
+            return
         }
+        eventRequest.apiKey = appkey
         
         let subDomain = SegmentifyManager.setup.subDomain
         guard subDomain != nil else {
@@ -995,14 +991,10 @@ public class SegmentifyManager : NSObject {
         let encodedData = SegmentifyManager.subscriptionBody(for: segmentifyObject)
         let dataCenter  = SegmentifyManager.setup.dataCenterUrlPush
         
-        var urlString = dataCenter! + "/native/subscription/push"
-        if let authHeader = SegmentifyManager.setup.authHeader {
-            // No apiKey in URL if authHeader is provided
-        } else {
-            urlString += "?apiKey=" + SegmentifyManager.setup.apiKey!
-        }
-        
-        let url = URL(string: urlString)!
+        // apiKey query param only when no Authorization header is configured
+        let url = SegmentifyAuth.url(dataCenter! + "/native/subscription/push",
+                                     apiKey: SegmentifyManager.setup.apiKey,
+                                     authorization: SegmentifyManager.setup.authHeader)!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -1060,14 +1052,10 @@ public class SegmentifyManager : NSObject {
         let encodedData = try? JSONEncoder().encode(segmentifyObject)
         let dataCenter  = SegmentifyManager.setup.dataCenterUrlPush
         
-        var urlString = dataCenter! + "/native/interaction/notification"
-        if let authHeader = SegmentifyManager.setup.authHeader {
-            // No apiKey in URL if authHeader is provided
-        } else {
-            urlString += "?apiKey=" + SegmentifyManager.setup.apiKey!
-        }
-        
-        let url = URL(string: urlString)!
+        // apiKey query param only when no Authorization header is configured
+        let url = SegmentifyAuth.url(dataCenter! + "/native/interaction/notification",
+                                     apiKey: SegmentifyManager.setup.apiKey,
+                                     authorization: SegmentifyManager.setup.authHeader)!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
