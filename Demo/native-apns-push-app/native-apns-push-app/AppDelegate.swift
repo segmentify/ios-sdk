@@ -65,11 +65,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
 
         let userInfo = notification.request.content.userInfo
-        let obj = NotificationModel()
-        obj.instanceId = userInfo["instanceId"] as? String ?? ""
-        obj.type = NotificationType.VIEW
+        // fromPush copies instanceId and correlationId; VIEW goes to sendNotificationInteraction
+        // (sendNotification posts to the subscription endpoint)
+        let obj = NotificationModel.fromPush(userInfo: userInfo, type: NotificationType.VIEW)
         obj.providerType = ProviderType.APNS
-        SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
+        SegmentifyManager.sharedManager().sendNotificationInteraction(segmentifyObject: obj)
 
         completionHandler([.banner, .sound, .badge])
     }

@@ -11,6 +11,8 @@ public class NotificationModel: Codable {
     public var deviceToken:String?
     public var instanceId:String?
     public var interactionId:String?
+    /// The send request's correlationId from the push (`userInfo["correlationId"]`); sent back on VIEW/CLICK.
+    public var correlationId:String?
     public var firebaseServerKey:String?
     public var type:NotificationType?
     public var topic:String?
@@ -41,6 +43,17 @@ public class NotificationModel: Codable {
         
         if(self.firebaseServerKey?.isEmpty == true){ self.providerType = ProviderType.APNS } else { self.providerType = ProviderType.FIREBASE}
         
+    }
+
+    /// Builds a VIEW/CLICK model from a Segmentify push's `userInfo`,
+    /// copying instanceId and correlationId so shown/clicked can be tied to the send request.
+    public static func fromPush(userInfo: [AnyHashable: Any], type: NotificationType) -> NotificationModel {
+        let payload = SegmentifyPushPayload(userInfo: userInfo)
+        let model = NotificationModel()
+        model.type = type
+        model.instanceId = payload.instanceId
+        model.correlationId = payload.correlationId
+        return model
     }
 }
 

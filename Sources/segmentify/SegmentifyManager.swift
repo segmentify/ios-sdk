@@ -1021,6 +1021,10 @@ public class SegmentifyManager : NSObject {
     }
 
     open func sendNotificationInteraction(segmentifyObject : NotificationModel) {
+        // push-sender sends "" when a push has no correlationId; don't report a blank one
+        if segmentifyObject.correlationId?.trimmingCharacters(in: .whitespaces).isEmpty == true {
+            segmentifyObject.correlationId = nil
+        }
         
         if(SegmentifyManager.setup.dataCenterUrlPush == nil || SegmentifyManager.setup.dataCenterUrlPush == ""){
             print("Error - you must set dataCenterUrlPush in setConfig before accessing sendNotificationInteraction event")
@@ -1190,6 +1194,7 @@ public class SegmentifyManager : NSObject {
             let obj = NotificationModel()
             obj.type = NotificationType.CLICK
             obj.instanceId = instanceId
+            obj.correlationId = payload.correlationId
             sendNotificationInteraction(segmentifyObject: obj)
         }
 

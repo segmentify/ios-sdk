@@ -22,6 +22,8 @@ public struct SegmentifyPushPayload {
     public let instanceId: String?
     public let apiKey: String?
     public let dataCenterUrl: String?
+    /// The send request's correlationId; nil when missing or empty (push-sender sends "" when there is none).
+    public let correlationId: String?
 
     /// Returns the effective link URL: prefers `deeplink`, falls back to `redirectUrl`.
     public var effectiveLink: URL? {
@@ -48,6 +50,12 @@ public struct SegmentifyPushPayload {
         self.instanceId = userInfo["instanceId"] as? String
         self.apiKey = userInfo["apiKey"] as? String
         self.dataCenterUrl = userInfo["dataCenterUrl"] as? String
+        if let correlationId = userInfo["correlationId"] as? String,
+           !correlationId.trimmingCharacters(in: .whitespaces).isEmpty {
+            self.correlationId = correlationId
+        } else {
+            self.correlationId = nil
+        }
 
         // Body from top-level "message" field
         if let message = userInfo["message"] as? String {

@@ -124,6 +124,47 @@ final class PushClickInteractionTests: XCTestCase {
         XCTAssertNil(UserDefaults.standard.string(forKey: "SEGMENTIFY_PUSH_CAMPAIGN_ID"))
     }
 
+    func testPushPayloadReadsCorrelationId() {
+        let payload = SegmentifyPushPayload(userInfo: ["instanceId": "psh_abc", "correlationId": "corr-1"])
+
+        XCTAssertEqual(payload.correlationId, "corr-1")
+    }
+
+    func testPushPayloadTreatsEmptyCorrelationIdAsMissing() {
+        XCTAssertNil(SegmentifyPushPayload(userInfo: ["instanceId": "psh_abc", "correlationId": ""]).correlationId)
+        XCTAssertNil(SegmentifyPushPayload(userInfo: ["instanceId": "psh_abc"]).correlationId)
+    }
+
+    func testFromPushCopiesInstanceIdAndCorrelationId() {
+        let model = NotificationModel.fromPush(userInfo: ["instanceId": "psh_abc", "correlationId": "corr-1"], type: .VIEW)
+
+        XCTAssertEqual(model.type, .VIEW)
+        XCTAssertEqual(model.instanceId, "psh_abc")
+        XCTAssertEqual(model.correlationId, "corr-1")
+    }
+
+    func testCorrelationIdIsEncodedInInteractionBody() throws {
+        let model = makeClick(instanceId: "psh_abc", interactionId: nil)
+        model.correlationId = "corr-1"
+
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(model)) as? [String: Any]
+
+        XCTAssertEqual(json?["correlationId"] as? String, "corr-1")
+        XCTAssertEqual(json?["instanceId"] as? String, "psh_abc")
+    }
+
+    func testBlankCorrelationIdIsDroppedBeforeSending() {
+        let legacyPosted = expectation(description: "legacy notification interaction posted")
+        MockURLProtocol.requestHandler = stubAllRequests(onLegacyNotification: { legacyPosted.fulfill() })
+        let model = makeClick(instanceId: "psh_abc", interactionId: nil)
+        model.correlationId = " "
+
+        manager.sendNotificationInteraction(segmentifyObject: model)
+
+        wait(for: [legacyPosted], timeout: 3)
+        XCTAssertNil(model.correlationId)
+    }
+
     private func makeClick(instanceId: String, interactionId: String?) -> NotificationModel {
         let model = NotificationModel()
         model.type = .CLICK
