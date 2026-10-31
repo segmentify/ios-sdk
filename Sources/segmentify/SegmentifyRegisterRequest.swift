@@ -84,8 +84,6 @@ public class SegmentifyRegisterRequest : NSObject,SegmentifyRequestProtocol {
     var params:[String:AnyObject]?
     var instanceId:String?
     var interactionId:String?
-    var deeplink:String?
-    var icon:String?
     var noUpdate:Bool?
     var testMode:Bool?
     var query:String?
@@ -530,12 +528,8 @@ public class SegmentifyRegisterRequest : NSObject,SegmentifyRequestProtocol {
 
         if self.eventName == "INTERACTION" {
             dictionary["interactionId"] = interactionId
-            dictionary["deeplink"] = deeplink
-            dictionary["icon"] = icon
         } else {
             dictionary["interactionId"] = nil
-            dictionary["deeplink"] = nil
-            dictionary["icon"] = nil
         }
 
         if self.eventName == "INTERACTION" {

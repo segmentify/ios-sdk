@@ -1,5 +1,7 @@
 .build/
 .idea
+# Demo credentials (see segmentifyDemoAuthHeader in the demo apps)
+Secrets.plist
 
 /Example/Pods/
 /Example/build

@@ -11,7 +11,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
         // Segmentify Config
         // Change your appKey, dataCenterUrl and subDomain values with suitable one
-        SegmentifyManager.setConfig(apiKey: nil, dataCenterUrl: "https://push-notification-api.preprod.cloud.unifonic.com", subDomain: "push-sfy-web.int.oci.ruh.dev.unifonic.com", authHeader: "Basic ZTc5NmJlNGUtNjExNi00Y2Y4LTgyYjgtNDIxMGEzNjNkMWJlOlhtU09WbjJhMjNVOGhjV0xDNVlraDd3S0ZYblBpZUhx")
+        SegmentifyManager.setConfig(apiKey: nil, dataCenterUrl: "https://push-notification-api.preprod.cloud.unifonic.com", subDomain: "push-sfy-web.int.oci.ruh.dev.unifonic.com", authHeader: segmentifyDemoAuthHeader())
         SegmentifyManager.setPushConfig(dataCenterUrlPush: "https://push-notification-api.preprod.cloud.unifonic.com")
         let _ = SegmentifyManager.logStatus(isVisible: true)
         let _ = SegmentifyManager.setSessionKeepSecond(sessionKeepSecond: 604800)
@@ -85,4 +85,19 @@ extension AppDelegate: MessagingDelegate {
         obj.userId = "2"
         SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
     }
+}
+
+/// Demo credentials are not committed. Set SEGMENTIFY_AUTH_HEADER either as an environment
+/// variable in the scheme (Edit Scheme > Run > Arguments) or in a gitignored Secrets.plist
+/// in the app target: <dict><key>SEGMENTIFY_AUTH_HEADER</key><string>TOKEN</string></dict>
+func segmentifyDemoAuthHeader() -> String? {
+    if let value = ProcessInfo.processInfo.environment["SEGMENTIFY_AUTH_HEADER"], !value.isEmpty {
+        return value
+    }
+    guard let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
+          let values = NSDictionary(contentsOf: url) as? [String: Any] else {
+        print("Segmentify demo: SEGMENTIFY_AUTH_HEADER is not set (see segmentifyDemoAuthHeader)")
+        return nil
+    }
+    return values["SEGMENTIFY_AUTH_HEADER"] as? String
 }
