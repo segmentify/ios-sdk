@@ -1,6 +1,6 @@
 .build/
 .idea
-# Demo credentials (see segmentifyDemoAuthHeader in the demo apps)
+# Demo environment overrides (see Demo/README.md)
 Secrets.plist
 
 /Example/Pods/

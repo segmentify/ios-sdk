@@ -9,10 +9,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
 
-        // Segmentify Config
-        // Change your appKey, dataCenterUrl and subDomain values with suitable one
-        SegmentifyManager.setConfig(apiKey: nil, dataCenterUrl: "https://push-notification-api.preprod.cloud.unifonic.com", subDomain: "push-sfy-web.int.oci.ruh.dev.unifonic.com", authHeader: segmentifyDemoAuthHeader())
-        SegmentifyManager.setPushConfig(dataCenterUrlPush: "https://push-notification-api.preprod.cloud.unifonic.com")
+        // Segmentify Config (Segmentify QA by default; see DemoEnvironment to override)
+        DemoEnvironment.apply()
         let _ = SegmentifyManager.logStatus(isVisible: true)
         let _ = SegmentifyManager.setSessionKeepSecond(sessionKeepSecond: 604800)
 
@@ -50,13 +48,10 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         let userInfo = notification.request.content.userInfo
         
         // Segmentify Event
-        // fromPush copies instanceId and correlationId; VIEW goes to sendNotificationInteraction
-        // (sendNotification posts to the subscription endpoint)
+        // fromPush copies instanceId (incl. FCM's gcm.notification.instanceId), correlationId and
+        // providerType; VIEW goes to sendNotificationInteraction (sendNotification posts to the
+        // subscription endpoint)
         let obj = NotificationModel.fromPush(userInfo: userInfo, type: NotificationType.VIEW)
-        if obj.instanceId == nil {
-            obj.instanceId = userInfo["gcm.notification.instanceId"] as? String
-        }
-        obj.providerType = ProviderType.FIREBASE
         SegmentifyManager.sharedManager().sendNotificationInteraction(segmentifyObject: obj)
         completionHandler([.banner, .sound, .badge])
     }
@@ -87,17 +82,41 @@ extension AppDelegate: MessagingDelegate {
     }
 }
 
-/// Demo credentials are not committed. Set SEGMENTIFY_AUTH_HEADER either as an environment
-/// variable in the scheme (Edit Scheme > Run > Arguments) or in a gitignored Secrets.plist
-/// in the app target: <dict><key>SEGMENTIFY_AUTH_HEADER</key><string>TOKEN</string></dict>
-func segmentifyDemoAuthHeader() -> String? {
-    if let value = ProcessInfo.processInfo.environment["SEGMENTIFY_AUTH_HEADER"], !value.isEmpty {
+/// Backend settings for this demo. The defaults are Segmentify QA. To run against another
+/// environment (e.g. Unifonic), override any value without editing code, either as an
+/// environment variable in the scheme (Edit Scheme > Run > Arguments) or in a gitignored
+/// Secrets.plist in the app target. See Demo/README.md and Demo/Secrets.example.plist.
+enum DemoEnvironment {
+    static var authHeader: String? { value("SEGMENTIFY_AUTH_HEADER") }
+    /// With an auth header and no explicit API key, no apiKey is sent.
+    static var apiKey: String? { value("SEGMENTIFY_API_KEY") ?? (authHeader == nil ? "5c571072-068e-40c5-8dbc-d8448158de19" : nil) }
+    static var dataCenterUrl: String { value("SEGMENTIFY_DATA_CENTER_URL") ?? "https://gandalf-qa.segmentify.com" }
+    static var pushDataCenterUrl: String { value("SEGMENTIFY_PUSH_DATA_CENTER_URL") ?? "https://gimli-qa.segmentify.com" }
+    static var subDomain: String { value("SEGMENTIFY_SUB_DOMAIN") ?? "demo.segmentify.com" }
+
+    static func apply() {
+        SegmentifyManager.setConfig(
+            apiKey: apiKey,
+            dataCenterUrl: dataCenterUrl,
+            subDomain: subDomain,
+            authHeader: authHeader
+        )
+        SegmentifyManager.setPushConfig(dataCenterUrlPush: pushDataCenterUrl)
+    }
+
+    private static let secrets: [String: Any] = {
+        guard let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
+              let values = NSDictionary(contentsOf: url) as? [String: Any] else {
+            return [:]
+        }
+        return values
+    }()
+
+    private static func value(_ key: String) -> String? {
+        let raw = ProcessInfo.processInfo.environment[key] ?? secrets[key] as? String
+        guard let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
         return value
     }
-    guard let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
-          let values = NSDictionary(contentsOf: url) as? [String: Any] else {
-        print("Segmentify demo: SEGMENTIFY_AUTH_HEADER is not set (see segmentifyDemoAuthHeader)")
-        return nil
-    }
-    return values["SEGMENTIFY_AUTH_HEADER"] as? String
 }

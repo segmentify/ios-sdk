@@ -44,11 +44,10 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         let userInfo = notification.request.content.userInfo
-        let obj = NotificationModel()
-        obj.type = NotificationType.VIEW
-        obj.providerType = ProviderType.FIREBASE
-        obj.instanceId = userInfo["instanceId"] as? String ?? ""
-        SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
+        // fromPush copies instanceId (incl. FCM's gcm.notification.instanceId), correlationId and
+        // providerType; VIEW goes to sendNotificationInteraction
+        let obj = NotificationModel.fromPush(userInfo: userInfo, type: NotificationType.VIEW)
+        SegmentifyManager.sharedManager().sendNotificationInteraction(segmentifyObject: obj)
         completionHandler([.banner, .sound, .badge])
     }
 
