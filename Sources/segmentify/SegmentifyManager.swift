@@ -1165,6 +1165,10 @@ public class SegmentifyManager : NSObject {
     ///     )
     /// }
     /// ```
+    ///
+    /// Not available in app extensions (it opens the deeplink with `UIApplication.shared`).
+    /// In a Notification Service Extension use `handlePushNotificationExtension` instead.
+    @available(iOSApplicationExtension, unavailable)
     open func handlePushNotificationResponse(
         response: UNNotificationResponse,
         completion: @escaping () -> Void
@@ -1177,13 +1181,11 @@ public class SegmentifyManager : NSObject {
             return
         }
 
-        // Send CLICK interaction
-        if let instanceId = payload.instanceId {
-            let obj = NotificationModel()
-            obj.type = NotificationType.CLICK
-            obj.instanceId = instanceId
-            obj.correlationId = payload.correlationId
-            sendNotificationInteraction(segmentifyObject: obj)
+        // Send CLICK interaction (same construction path as VIEW, incl. providerType)
+        if payload.instanceId != nil {
+            sendNotificationInteraction(
+                segmentifyObject: NotificationModel.fromPush(userInfo: userInfo, type: .CLICK)
+            )
         }
 
         // Open deeplink natively
@@ -2081,21 +2083,48 @@ public class SegmentifyManager : NSObject {
         eventRequest.userOperationStep = SegmentifyManager.widgetViewStep
     }
     
+    /// Sends the push click as an INTERACTION event on its own request, so push-specific
+    /// fields (type, instanceId, interactionId) never leak into the shared `eventRequest`
+    /// used by later events. Runs on the main queue like the other legacy events, since
+    /// it is usually called from the notification delegate's thread.
     func sendPushClick(segmentifyObject : InteractionModel) {
-        eventRequest.eventName = SegmentifyManager.interactionEventName
-        eventRequest.type = SegmentifyManager.pushStep
-        eventRequest.instanceId = segmentifyObject.instanceId
-        eventRequest.interactionId = segmentifyObject.interactionId
+        let instanceId = segmentifyObject.instanceId
+        let interactionId = segmentifyObject.interactionId
 
-        if UserDefaults.standard.object(forKey: "UserSentUserId") != nil {
-            eventRequest.userID = UserDefaults.standard.object(forKey: "UserSentUserId") as? String
-        } else {
-            if UserDefaults.standard.object(forKey: "SEGMENTIFY_USER_ID") != nil {
-                self.eventRequest.userID = UserDefaults.standard.object(forKey: "SEGMENTIFY_USER_ID") as? String
+        let send = {
+            self.resolveCdpSession { userId, sessionId in
+                let request = self.makePushClickRequest(
+                    instanceId: instanceId,
+                    interactionId: interactionId,
+                    userId: userId,
+                    sessionId: sessionId
+                )
+                SegmentifyConnectionManager.sharedInstance.request(
+                    requestModel: request,
+                    success: { _ in },
+                    failure: { error in print("Error - push click interaction failed: \(error)") }
+                )
             }
         }
 
-        setIDAndSendEvent()
+        if Thread.isMainThread {
+            send()
+        } else {
+            DispatchQueue.main.async(execute: send)
+        }
+    }
+
+    func makePushClickRequest(instanceId: String?, interactionId: String?, userId: String?, sessionId: String?) -> SegmentifyRegisterRequest {
+        let request = makeCdpRequest()
+        request.eventName = SegmentifyManager.interactionEventName
+        request.type = SegmentifyManager.pushStep
+        request.instanceId = instanceId
+        request.interactionId = interactionId
+        request.userOperationStep = nil
+        request.params = nil
+        request.userID = userId
+        request.sessionID = sessionId
+        return request
     }
     
     //Alternative Events

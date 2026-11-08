@@ -12,13 +12,14 @@ import Foundation
 enum SegmentifyAuth {
 
     /// Returns the Authorization header value for a configured authHeader.
-    /// A raw token gets the "Basic " prefix; a value that already has a scheme
-    /// (e.g. "Basic xxx") is used as is. Blank values return nil.
+    /// A value that already starts with "Basic " (case-insensitive) is used as is;
+    /// anything else gets the "Basic " prefix. Same rule as the web SDK. Blank values return nil.
     static func authorizationValue(_ authHeader: String?) -> String? {
         guard let value = authHeader?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
             return nil
         }
-        return value.contains(" ") ? value : "Basic \(value)"
+        let hasBasicScheme = value.range(of: "^Basic\\s", options: [.regularExpression, .caseInsensitive]) != nil
+        return hasBasicScheme ? value : "Basic \(value)"
     }
 
     /// Builds the request URL, adding `apiKey` as a query parameter only when

@@ -41,13 +41,19 @@ public struct SegmentifyPushPayload {
         return instanceId != nil || apiKey != nil
     }
 
+    /// Push provider inferred from the payload: FCM payloads carry `gcm.*` / `google.c.*` keys.
+    public let providerType: ProviderType
+
     public init(userInfo: [AnyHashable: Any]) {
+        self.providerType = SegmentifyPushPayload.isFirebasePayload(userInfo) ? .FIREBASE : .APNS
         self.title = userInfo["title"] as? String
         self.imageUrl = userInfo["image"] as? String
         self.iconUrl = userInfo["icon"] as? String
         self.deeplink = userInfo["deeplink"] as? String
         self.redirectUrl = userInfo["redirectUrl"] as? String
-        self.instanceId = userInfo["instanceId"] as? String
+        // FCM delivers notification fields as "gcm.notification.<key>"; APNs payloads are top-level.
+        self.instanceId = (userInfo["instanceId"] as? String)
+            ?? (userInfo["gcm.notification.instanceId"] as? String)
         self.apiKey = userInfo["apiKey"] as? String
         self.dataCenterUrl = userInfo["dataCenterUrl"] as? String
         if let correlationId = userInfo["correlationId"] as? String,
@@ -65,6 +71,13 @@ public struct SegmentifyPushPayload {
             self.body = alert["body"] as? String
         } else {
             self.body = nil
+        }
+    }
+
+    static func isFirebasePayload(_ userInfo: [AnyHashable: Any]) -> Bool {
+        return userInfo.keys.contains { key in
+            guard let key = key as? String else { return false }
+            return key.hasPrefix("gcm.") || key.hasPrefix("google.c.")
         }
     }
 }

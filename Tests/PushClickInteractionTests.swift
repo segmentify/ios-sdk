@@ -24,8 +24,8 @@ final class PushClickInteractionTests: XCTestCase {
         let interactionSent = expectation(description: "push interaction dispatched")
         var sentRequest: [AnyHashable: Any] = [:]
 
-        MockURLProtocol.requestHandler = stubAllRequests(onInteraction: {
-            sentRequest = self.manager.testingCurrentRequestDictionary()
+        MockURLProtocol.requestHandler = stubAllRequests(onInteraction: { body in
+            sentRequest = body
             interactionSent.fulfill()
         })
 
@@ -42,8 +42,8 @@ final class PushClickInteractionTests: XCTestCase {
         let interactionSent = expectation(description: "push interaction dispatched")
         var sentRequest: [AnyHashable: Any] = [:]
 
-        MockURLProtocol.requestHandler = stubAllRequests(onInteraction: {
-            sentRequest = self.manager.testingCurrentRequestDictionary()
+        MockURLProtocol.requestHandler = stubAllRequests(onInteraction: { body in
+            sentRequest = body
             interactionSent.fulfill()
         })
 
@@ -71,7 +71,7 @@ final class PushClickInteractionTests: XCTestCase {
         let interactionSent = expectation(description: "click interaction dispatched")
         var sentRequest: [AnyHashable: Any] = [:]
 
-        MockURLProtocol.requestHandler = stubAllRequests(onInteraction: {
+        MockURLProtocol.requestHandler = stubAllRequests(onInteraction: { _ in
             sentRequest = self.manager.testingCurrentRequestDictionary()
             interactionSent.fulfill()
         })
@@ -165,6 +165,75 @@ final class PushClickInteractionTests: XCTestCase {
         XCTAssertNil(model.correlationId)
     }
 
+    func testClickDoesNotLeakPushFieldsIntoSharedRequest() {
+        let interactionSent = expectation(description: "push interaction dispatched")
+
+        MockURLProtocol.requestHandler = stubAllRequests(onInteraction: { _ in
+            interactionSent.fulfill()
+        })
+
+        manager.sendNotificationInteraction(segmentifyObject: makeClick(instanceId: "psh_abc", interactionId: "static"))
+
+        wait(for: [interactionSent], timeout: 3)
+        let shared = manager.testingCurrentRequestDictionary()
+        XCTAssertNotEqual(shared["type"] as? String, "push")
+        XCTAssertNotEqual(shared["instanceId"] as? String, "psh_abc")
+        XCTAssertNotEqual(shared["interactionId"] as? String, "static")
+    }
+
+    func testClickFromBackgroundThreadIsSent() {
+        let interactionSent = expectation(description: "push interaction dispatched")
+        var sentRequest: [AnyHashable: Any] = [:]
+
+        MockURLProtocol.requestHandler = stubAllRequests(onInteraction: { body in
+            sentRequest = body
+            interactionSent.fulfill()
+        })
+
+        DispatchQueue.global().async {
+            self.manager.sendNotificationInteraction(segmentifyObject: self.makeClick(instanceId: "psh_bg", interactionId: nil))
+        }
+
+        wait(for: [interactionSent], timeout: 3)
+        XCTAssertEqual(sentRequest["instanceId"] as? String, "psh_bg")
+    }
+
+    func testPushPayloadReadsFirebaseInstanceId() {
+        let payload = SegmentifyPushPayload(userInfo: [
+            "gcm.message_id": "1",
+            "gcm.notification.instanceId": "psh_fcm"
+        ])
+
+        XCTAssertEqual(payload.instanceId, "psh_fcm")
+        XCTAssertTrue(payload.isSegmentifyNotification)
+    }
+
+    func testTopLevelInstanceIdWinsOverFirebaseKey() {
+        let payload = SegmentifyPushPayload(userInfo: [
+            "instanceId": "psh_top",
+            "gcm.notification.instanceId": "psh_fcm"
+        ])
+
+        XCTAssertEqual(payload.instanceId, "psh_top")
+    }
+
+    func testFromPushCopiesFirebaseInstanceIdAndProvider() {
+        let model = NotificationModel.fromPush(userInfo: [
+            "gcm.message_id": "1",
+            "gcm.notification.instanceId": "psh_fcm"
+        ], type: .CLICK)
+
+        XCTAssertEqual(model.instanceId, "psh_fcm")
+        XCTAssertEqual(model.providerType, .FIREBASE)
+    }
+
+    func testFromPushDetectsApnsProvider() {
+        let userInfo: [AnyHashable: Any] = ["instanceId": "psh_apns", "aps": ["alert": ["body": "hi"]]]
+
+        XCTAssertEqual(NotificationModel.fromPush(userInfo: userInfo, type: .VIEW).providerType, .APNS)
+        XCTAssertEqual(NotificationModel.fromPush(userInfo: userInfo, type: .CLICK).providerType, .APNS)
+    }
+
     private func makeClick(instanceId: String, interactionId: String?) -> NotificationModel {
         let model = NotificationModel()
         model.type = .CLICK
@@ -174,13 +243,13 @@ final class PushClickInteractionTests: XCTestCase {
     }
 
     private func stubAllRequests(
-        onInteraction: @escaping () -> Void = {},
+        onInteraction: @escaping (_ body: [AnyHashable: Any]) -> Void = { _ in },
         onLegacyNotification: @escaping () -> Void = {}
     ) -> (URLRequest) throws -> (HTTPURLResponse, Data) {
         { request in
             let path = request.url?.absoluteString ?? ""
             if path.contains("/add/events/") {
-                onInteraction()
+                onInteraction(Self.jsonBody(of: request))
             }
             if path.contains("/native/interaction/notification") {
                 onLegacyNotification()
@@ -189,5 +258,28 @@ final class PushClickInteractionTests: XCTestCase {
             let data = try SegmentifyTestSupport.emptyEventResponse()
             return (response, data)
         }
+    }
+
+    /// URLProtocol may expose the POST body as a stream instead of `httpBody`.
+    private static func jsonBody(of request: URLRequest) -> [AnyHashable: Any] {
+        var data = request.httpBody
+        if data == nil, let stream = request.httpBodyStream {
+            var buffer = Data()
+            stream.open()
+            defer { stream.close() }
+            let chunk = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096)
+            defer { chunk.deallocate() }
+            while stream.hasBytesAvailable {
+                let read = stream.read(chunk, maxLength: 4096)
+                if read <= 0 { break }
+                buffer.append(chunk, count: read)
+            }
+            data = buffer
+        }
+        guard let data,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [AnyHashable: Any] else {
+            return [:]
+        }
+        return json
     }
 }

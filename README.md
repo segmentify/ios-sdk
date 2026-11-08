@@ -49,3 +49,12 @@ Good Luck!
 ## Push & User Updates 1.4.3
 
 1.4.3 update changes user events in the background. This is a completely internal and will not effect sdk users. Also productId parameter has been removed from push interaction event. 
+
+
+## Push Auth & Click Updates 1.5.0
+
+- `setConfig(apiKey:dataCenterUrl:subDomain:authHeader:)`: `apiKey` is now optional and there is a new optional `authHeader`. Existing calls compile unchanged. When `authHeader` is set, requests carry `Authorization: Basic <token>` and no `apiKey` query parameter. A value that already starts with `Basic ` is used as is; any other value gets the `Basic ` prefix (same rule as the web SDK).
+- **Behaviour change:** push clicks are now sent as `INTERACTION` events (`type: push`). Before 1.5.0 the click interaction was never sent, so push click numbers in reporting will go up after upgrading.
+- New `handlePushNotificationResponse(response:completion:)` sends the CLICK and opens the deeplink. It is not available in app extensions; use `handlePushNotificationExtension` in a Notification Service Extension.
+- `instanceId` is read from the top-level `instanceId` or, for Firebase payloads, `gcm.notification.instanceId`.
+- `NotificationModel.fromPush(userInfo:type:)` also sets `providerType` (`FIREBASE` for FCM payloads, otherwise `APNS`), so VIEW and CLICK for the same push report the same provider.

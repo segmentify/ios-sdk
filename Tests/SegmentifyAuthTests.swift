@@ -8,9 +8,16 @@ final class SegmentifyAuthTests: XCTestCase {
         XCTAssertEqual(SegmentifyAuth.authorizationValue("  abc \n"), "Basic abc")
     }
 
-    func testValueWithSchemeIsKept() {
+    func testValueWithBasicSchemeIsKept() {
         XCTAssertEqual(SegmentifyAuth.authorizationValue("Basic abc"), "Basic abc")
-        XCTAssertEqual(SegmentifyAuth.authorizationValue("Bearer abc"), "Bearer abc")
+        XCTAssertEqual(SegmentifyAuth.authorizationValue("basic abc"), "basic abc")
+        XCTAssertEqual(SegmentifyAuth.authorizationValue("BASIC\tabc"), "BASIC\tabc")
+    }
+
+    /// Same rule as the web SDK: only a "Basic " prefix is kept, any other value gets one.
+    func testNonBasicValueGetsBasicPrefix() {
+        XCTAssertEqual(SegmentifyAuth.authorizationValue("Bearer abc"), "Basic Bearer abc")
+        XCTAssertEqual(SegmentifyAuth.authorizationValue("Basicabc"), "Basic Basicabc")
     }
 
     func testBlankAuthHeaderIsNil() {
