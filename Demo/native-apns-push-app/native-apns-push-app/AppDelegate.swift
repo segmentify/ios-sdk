@@ -63,14 +63,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
 
-        let userInfo = notification.request.content.userInfo
-        let instanceId = userInfo["instanceId"] as? String ?? ""
-
-        let obj = NotificationModel()
-        obj.type = NotificationType.VIEW
-        obj.providerType = ProviderType.APNS
-        obj.instanceId = instanceId
-        SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
+        let payload = SegmentifyPushPayload(userInfo: notification.request.content.userInfo)
+        SegmentifyManager.sharedManager().handlePushReceived(payload)
 
         completionHandler([.banner, .sound, .badge])
     }
@@ -83,13 +77,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         let userInfo = response.notification.request.content.userInfo
         print("Notification tapped (APNs), userInfo: \(userInfo)")
 
-        let instanceId = userInfo["instanceId"] as? String ?? ""
-
-        let obj = NotificationModel()
-        obj.type = NotificationType.CLICK
-        obj.providerType = ProviderType.APNS
-        obj.instanceId = instanceId
-        SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
+        let payload = SegmentifyPushPayload(userInfo: userInfo)
+        SegmentifyManager.sharedManager().handlePushClicked(payload)
 
         completionHandler()
     }

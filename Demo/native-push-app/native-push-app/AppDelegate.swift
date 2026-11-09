@@ -47,14 +47,10 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         
-        let userInfo = notification.request.content.userInfo
+        let payload = SegmentifyPushPayload(userInfo: notification.request.content.userInfo)
         
         // Segmentify Event
-        let obj = NotificationModel()
-        obj.type = NotificationType.VIEW
-        obj.providerType = ProviderType.FIREBASE
-        obj.instanceId = userInfo["instanceId"] as? String ?? ""
-        SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
+        SegmentifyManager.sharedManager().handlePushReceived(payload)
         completionHandler([.banner, .sound, .badge])
     }
 
@@ -62,12 +58,12 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         
-        let userInfo = response.notification.request.content.userInfo
+        let payload = SegmentifyPushPayload(userInfo: response.notification.request.content.userInfo)
 
-        if let deepLinkString = userInfo["deeplink"] as? String,
+        if let deepLinkString = payload.targetUrl,
            var components = URLComponents(string: deepLinkString) {
             var queryItems = components.queryItems ?? []
-            let image = userInfo["image"] as? String
+            let image = payload.image
             let newQueryItem = URLQueryItem(name: "image", value: image)
             queryItems.append(newQueryItem)
             components.queryItems = queryItems
@@ -77,15 +73,10 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 }
             }
         } else {
-            print("⚠️ 'deeplink' cannot be found")
+            print("⚠️ neither 'deeplink' nor 'redirectUrl' can be found")
         }
         
-        let obj = NotificationModel()
-        obj.deviceToken = ""
-        obj.type = NotificationType.CLICK
-        obj.providerType = ProviderType.FIREBASE
-        obj.instanceId = userInfo["instanceId"] as? String ?? ""
-        SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
+        SegmentifyManager.sharedManager().handlePushClicked(payload)
         
         completionHandler()
     }
