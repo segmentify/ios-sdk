@@ -31,6 +31,31 @@ final class SegmentifyPushPayloadTests: XCTestCase {
         XCTAssertEqual(v2Apns.userId, "user-1")
     }
 
+    func testSharedV2FixtureParsesLikeItsLegacyFixture() throws {
+        let legacy = SegmentifyPushPayload(userInfo: try fixture("legacy-android"))
+        let v2 = SegmentifyPushPayload(userInfo: try fixture("v2-full"))
+
+        XCTAssertTrue(v2.isV2)
+        XCTAssertEqual(v2.withoutV2Keys(), legacy)
+        XCTAssertEqual(v2.tag, "summer-sale")
+        XCTAssertEqual(v2.userId, "user-1")
+    }
+
+    func testArrayAndStringActionsParseTheSame() throws {
+        let arrayActions = SegmentifyPushPayload(userInfo: try fixture("legacy-vapid")).actions
+        let stringActions = SegmentifyPushPayload(userInfo: try fixture("legacy-web-fcm")).actions
+
+        XCTAssertEqual(arrayActions, stringActions)
+        XCTAssertEqual(arrayActions, [SegmentifyPushAction(action: "action0", title: "Open", redirectUrl: "https://shop.example.com/open")])
+    }
+
+    func testBooleanValuesAreTreatedAsMissing() {
+        let payload = SegmentifyPushPayload(userInfo: ["instanceId": true, "sgmVersion": 2])
+
+        XCTAssertNil(payload.instanceId)
+        XCTAssertEqual(payload.sgmVersion, "2")
+    }
+
     func testParsesLegacyFcmKeys() throws {
         let payload = SegmentifyPushPayload(userInfo: try fixture("legacy-ios-fcm"))
 
@@ -131,11 +156,28 @@ final class SegmentifyPushPayloadTests: XCTestCase {
         let model = NotificationModel()
         model.type = .PERMISSION_INFO
         model.deviceToken = "device-token"
-        model.sdkVersion = SegmentifyManager.registrationSdkVersion(for: model.type)
 
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(model)) as? [String: Any])
+        let body = try XCTUnwrap(SegmentifyManager.subscriptionBody(for: model))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
 
-        XCTAssertEqual(json["sdkVersion"] as? String, SDKVersion.value)
+        let versionFile = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("version")
+        let expected = try String(contentsOf: versionFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertNotEqual(SDKVersion.value, "unknown")
+        XCTAssertEqual(json["sdkVersion"] as? String, expected)
+    }
+
+    func testSubscriptionBodyOfOtherTypesHasNoSdkVersion() throws {
+        let model = NotificationModel()
+        model.type = .VIEW
+        model.sdkVersion = "stale"
+
+        let body = try XCTUnwrap(SegmentifyManager.subscriptionBody(for: model))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+
+        XCTAssertNil(json["sdkVersion"])
     }
 
     func testInteractionsDoNotCarrySdkVersion() {

@@ -73,7 +73,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 }
             }
         } else {
-            print("⚠️ 'deeplink' cannot be found")
+            print("⚠️ neither 'deeplink' nor 'redirectUrl' can be found")
         }
         
         SegmentifyManager.sharedManager().handlePushClicked(payload)

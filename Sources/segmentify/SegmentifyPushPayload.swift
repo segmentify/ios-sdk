@@ -66,7 +66,7 @@ public struct SegmentifyPushPayload: Equatable {
         switch value {
         case let value as String:
             text = value
-        case let value as NSNumber:
+        case let value as NSNumber where CFGetTypeID(value) != CFBooleanGetTypeID():
             text = value.stringValue
         default:
             text = nil

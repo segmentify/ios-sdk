@@ -84,6 +84,46 @@ final class PushClickInteractionTests: XCTestCase {
         XCTAssertEqual(sentRequest["interactionId"] as? String, "product_1")
     }
 
+    func testHandlePushClickedPostsInteractionWithPayloadInstanceId() {
+        let legacyPosted = expectation(description: "push click posted to the interaction endpoint")
+
+        MockURLProtocol.requestHandler = stubAllRequests(onLegacyNotification: {
+            legacyPosted.fulfill()
+        })
+
+        manager.handlePushClicked(SegmentifyPushPayload(userInfo: ["instanceId": "psh_abc"]))
+
+        wait(for: [legacyPosted], timeout: 3)
+        XCTAssertEqual(UserDefaults.standard.string(forKey: "SEGMENTIFY_PUSH_CAMPAIGN_ID"), "psh_abc")
+    }
+
+    func testHandlePushReceivedPostsViewToTheInteractionEndpoint() {
+        let viewPosted = expectation(description: "push view posted to the interaction endpoint")
+
+        MockURLProtocol.requestHandler = stubAllRequests(onLegacyNotification: {
+            viewPosted.fulfill()
+        })
+
+        manager.handlePushReceived(SegmentifyPushPayload(userInfo: ["instanceId": "psh_abc"]))
+
+        wait(for: [viewPosted], timeout: 3)
+    }
+
+    func testHandlePushWithoutInstanceIdSendsNothing() {
+        let nothingSent = expectation(description: "no push interaction request")
+        nothingSent.isInverted = true
+
+        MockURLProtocol.requestHandler = stubAllRequests(onLegacyNotification: {
+            nothingSent.fulfill()
+        })
+
+        manager.handlePushReceived(SegmentifyPushPayload(userInfo: [:]))
+        manager.handlePushClicked(SegmentifyPushPayload(userInfo: ["instanceId": ""]))
+
+        wait(for: [nothingSent], timeout: 1)
+        XCTAssertNil(UserDefaults.standard.string(forKey: "SEGMENTIFY_PUSH_CAMPAIGN_ID"))
+    }
+
     private func makeClick(instanceId: String, interactionId: String?) -> NotificationModel {
         let model = NotificationModel()
         model.type = .CLICK

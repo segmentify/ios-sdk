@@ -983,8 +983,7 @@ public class SegmentifyManager : NSObject {
             return
         }
 
-        segmentifyObject.sdkVersion = SegmentifyManager.registrationSdkVersion(for: segmentifyObject.type)
-        let encodedData = try? JSONEncoder().encode(segmentifyObject)
+        let encodedData = SegmentifyManager.subscriptionBody(for: segmentifyObject)
         let dataCenter  = SegmentifyManager.setup.dataCenterUrlPush
         let url = URL(string: dataCenter! + "/native/subscription/push?apiKey=" + SegmentifyManager.setup.apiKey!)!
         var request = URLRequest(url: url)
@@ -1076,6 +1075,11 @@ public class SegmentifyManager : NSObject {
         model.instanceId = instanceId
         model.providerType = payload.providerType
         return model
+    }
+
+    static func subscriptionBody(for segmentifyObject: NotificationModel) -> Data? {
+        segmentifyObject.sdkVersion = SegmentifyManager.registrationSdkVersion(for: segmentifyObject.type)
+        return try? JSONEncoder().encode(segmentifyObject)
     }
 
     static func registrationSdkVersion(for type: NotificationType?) -> String? {
