@@ -125,7 +125,7 @@ public class SegmentifyManager : NSObject {
         SegmentifyManager.setup.apiKey = apiKey
         SegmentifyManager.setup.dataCenterUrl = dataCenterUrl
         SegmentifyManager.setup.subDomain = subDomain
-        // Stored as the full header value ("Basic <token>"); blank means not set
+        // Sent as the Authorization header exactly as given (e.g. "Basic <token>"); blank means not set
         SegmentifyManager.setup.authHeader = SegmentifyAuth.authorizationValue(authHeader)
         segmentifySharedInstance = SegmentifyManager.init()
     }

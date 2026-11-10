@@ -6,20 +6,19 @@ import Foundation
 
 /// Authentication for SDK requests.
 ///
-/// - authHeader set: `Authorization: Basic <token>` and no `apiKey` query parameter
+/// - authHeader set: `Authorization: <authHeader>` (sent as is, e.g. "Basic <token>") and no `apiKey` query parameter
 ///   (Unifonic push-notification-api)
 /// - otherwise:      `?apiKey=<apiKey>` as in the original Segmentify setup
 enum SegmentifyAuth {
 
     /// Returns the Authorization header value for a configured authHeader.
-    /// A value that already starts with "Basic " (case-insensitive) is used as is;
-    /// anything else gets the "Basic " prefix. Same rule as the web SDK. Blank values return nil.
+    /// The value is sent exactly as configured (only surrounding whitespace is trimmed);
+    /// no scheme is added, so pass the full value, e.g. "Basic <token>". Blank values return nil.
     static func authorizationValue(_ authHeader: String?) -> String? {
         guard let value = authHeader?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
             return nil
         }
-        let hasBasicScheme = value.range(of: "^Basic\\s", options: [.regularExpression, .caseInsensitive]) != nil
-        return hasBasicScheme ? value : "Basic \(value)"
+        return value
     }
 
     /// Builds the request URL, adding `apiKey` as a query parameter only when

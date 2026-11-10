@@ -9,7 +9,7 @@ Every backend setting can be overridden without changing code, so the same code 
 | Key | Default |
 | --- | --- |
 | `SEGMENTIFY_API_KEY` | Segmentify QA demo key (not sent when only `SEGMENTIFY_AUTH_HEADER` is set) |
-| `SEGMENTIFY_AUTH_HEADER` | none |
+| `SEGMENTIFY_AUTH_HEADER` | none. Full header value, sent as is, e.g. `Basic <token>` |
 | `SEGMENTIFY_DATA_CENTER_URL` | `https://gandalf-qa.segmentify.com` |
 | `SEGMENTIFY_PUSH_DATA_CENTER_URL` | `https://gimli-qa.segmentify.com` |
 | `SEGMENTIFY_SUB_DOMAIN` | demo subdomain of the app |

@@ -53,7 +53,7 @@ Good Luck!
 
 ## Push Auth & Click Updates 1.5.0
 
-- `setConfig(apiKey:dataCenterUrl:subDomain:authHeader:)`: `apiKey` is now optional and there is a new optional `authHeader`. Existing calls compile unchanged. When `authHeader` is set, requests carry `Authorization: Basic <token>` and no `apiKey` query parameter. A value that already starts with `Basic ` is used as is; any other value gets the `Basic ` prefix (same rule as the web SDK).
+- `setConfig(apiKey:dataCenterUrl:subDomain:authHeader:)`: `apiKey` is now optional and there is a new optional `authHeader`. Existing calls compile unchanged. When `authHeader` is set, it is sent as the `Authorization` header exactly as given (no prefix is added, so pass the full value, e.g. `Basic <token>`), and no `apiKey` query parameter is sent.
 - **Behaviour change:** push clicks are now sent as `INTERACTION` events (`type: push`). Before 1.5.0 the click interaction was never sent, so push click numbers in reporting will go up after upgrading.
 - New `handlePushNotificationResponse(response:completion:)` sends the CLICK and opens the deeplink. It is not available in app extensions; use `handlePushNotificationExtension` in a Notification Service Extension.
 - `instanceId` is read from the top-level `instanceId` or, for Firebase payloads, `gcm.notification.instanceId`.
