@@ -9,78 +9,7 @@ import UniformTypeIdentifiers
 import UIKit
 #endif
 
-// MARK: - Segmentify Push Payload
-
-/// A model representing a parsed Segmentify push notification payload.
-public struct SegmentifyPushPayload {
-    public let title: String?
-    public let body: String?
-    public let imageUrl: String?
-    public let iconUrl: String?
-    public let deeplink: String?
-    public let redirectUrl: String?
-    public let instanceId: String?
-    public let apiKey: String?
-    public let dataCenterUrl: String?
-    /// The send request's correlationId; nil when missing or empty (push-sender sends "" when there is none).
-    public let correlationId: String?
-
-    /// Returns the effective link URL: prefers `deeplink`, falls back to `redirectUrl`.
-    public var effectiveLink: URL? {
-        if let deeplink = deeplink, let url = URL(string: deeplink) {
-            return url
-        }
-        if let redirectUrl = redirectUrl, let url = URL(string: redirectUrl) {
-            return url
-        }
-        return nil
-    }
-
-    /// Whether this notification originated from Segmentify (has instanceId or apiKey).
-    public var isSegmentifyNotification: Bool {
-        return instanceId != nil || apiKey != nil
-    }
-
-    /// Push provider inferred from the payload: FCM payloads carry `gcm.*` / `google.c.*` keys.
-    public let providerType: ProviderType
-
-    public init(userInfo: [AnyHashable: Any]) {
-        self.providerType = SegmentifyPushPayload.isFirebasePayload(userInfo) ? .FIREBASE : .APNS
-        self.title = userInfo["title"] as? String
-        self.imageUrl = userInfo["image"] as? String
-        self.iconUrl = userInfo["icon"] as? String
-        self.deeplink = userInfo["deeplink"] as? String
-        self.redirectUrl = userInfo["redirectUrl"] as? String
-        // FCM delivers notification fields as "gcm.notification.<key>"; APNs payloads are top-level.
-        self.instanceId = (userInfo["instanceId"] as? String)
-            ?? (userInfo["gcm.notification.instanceId"] as? String)
-        self.apiKey = userInfo["apiKey"] as? String
-        self.dataCenterUrl = userInfo["dataCenterUrl"] as? String
-        if let correlationId = userInfo["correlationId"] as? String,
-           !correlationId.trimmingCharacters(in: .whitespaces).isEmpty {
-            self.correlationId = correlationId
-        } else {
-            self.correlationId = nil
-        }
-
-        // Body from top-level "message" field
-        if let message = userInfo["message"] as? String {
-            self.body = message
-        } else if let aps = userInfo["aps"] as? [String: Any],
-                  let alert = aps["alert"] as? [String: Any] {
-            self.body = alert["body"] as? String
-        } else {
-            self.body = nil
-        }
-    }
-
-    static func isFirebasePayload(_ userInfo: [AnyHashable: Any]) -> Bool {
-        return userInfo.keys.contains { key in
-            guard let key = key as? String else { return false }
-            return key.hasPrefix("gcm.") || key.hasPrefix("google.c.")
-        }
-    }
-}
+// The payload model lives in SegmentifyPushPayload.swift.
 
 // MARK: - Segmentify Push Notification Handler
 
@@ -103,7 +32,7 @@ public class SegmentifyPushNotificationHandler {
         let userInfo = request.content.userInfo
         let payload = SegmentifyPushPayload(userInfo: userInfo)
 
-        guard let imageUrlString = payload.imageUrl,
+        guard let imageUrlString = payload.image,
               let imageUrl = URL(string: imageUrlString) else {
             contentHandler(bestAttemptContent)
             return

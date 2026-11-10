@@ -148,6 +148,22 @@ final class SegmentifyPushPayloadTests: XCTestCase {
         XCTAssertEqual(model.providerType, .FIREBASE)
     }
 
+    func testPushInteractionCarriesCorrelationId() throws {
+        let payload = SegmentifyPushPayload(userInfo: ["instanceId": "ins-1", "correlationId": "corr-1"])
+
+        let model = try XCTUnwrap(SegmentifyManager.pushInteractionModel(payload: payload, type: .VIEW))
+
+        XCTAssertEqual(model.correlationId, "corr-1")
+    }
+
+    func testFcmNotificationInstanceIdIsUsedWhenTopLevelIsMissing() {
+        let payload = SegmentifyPushPayload(userInfo: ["gcm.message_id": "0:1", "gcm.notification.instanceId": "ins-fcm"])
+
+        XCTAssertEqual(payload.instanceId, "ins-fcm")
+        XCTAssertEqual(payload.providerType, .FIREBASE)
+        XCTAssertTrue(payload.isSegmentifyNotification)
+    }
+
     func testPushInteractionWithoutInstanceIdIsNotSent() throws {
         XCTAssertNil(SegmentifyManager.pushInteractionModel(payload: SegmentifyPushPayload(userInfo: try fixture("empty")), type: .VIEW))
     }

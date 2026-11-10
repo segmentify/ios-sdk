@@ -1096,6 +1096,7 @@ public class SegmentifyManager : NSObject {
         let model = NotificationModel()
         model.type = type
         model.instanceId = instanceId
+        model.correlationId = payload.correlationId
         model.providerType = payload.providerType
         return model
     }

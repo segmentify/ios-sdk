@@ -32,6 +32,8 @@ public struct SegmentifyPushPayload: Equatable {
     public internal(set) var apiKey: String?
     public internal(set) var dataCenterUrl: String?
     public internal(set) var userId: String?
+    /// The send request's correlationId; nil when missing or empty (push-sender sends "" when there is none).
+    public internal(set) var correlationId: String?
     public internal(set) var actions: [SegmentifyPushAction]
     public internal(set) var providerType: ProviderType
 
@@ -41,6 +43,22 @@ public struct SegmentifyPushPayload: Equatable {
 
     public var targetUrl: String? {
         return deeplink ?? redirectUrl
+    }
+
+    /// `targetUrl` as a URL: prefers `deeplink`, falls back to `redirectUrl` when the deeplink is missing or invalid.
+    public var effectiveLink: URL? {
+        if let deeplink = deeplink, let url = URL(string: deeplink) {
+            return url
+        }
+        if let redirectUrl = redirectUrl, let url = URL(string: redirectUrl) {
+            return url
+        }
+        return nil
+    }
+
+    /// Whether this notification originated from Segmentify (has instanceId or apiKey).
+    public var isSegmentifyNotification: Bool {
+        return instanceId != nil || apiKey != nil
     }
 
     public init(userInfo: [AnyHashable: Any]) {
@@ -53,12 +71,23 @@ public struct SegmentifyPushPayload: Equatable {
         redirectUrl = SegmentifyPushPayload.string(userInfo["redirectUrl"])
         deeplink = SegmentifyPushPayload.string(userInfo["deeplink"])
         tag = SegmentifyPushPayload.string(userInfo["tag"])
+        // FCM delivers notification fields as "gcm.notification.<key>"; APNs payloads are top-level.
         instanceId = SegmentifyPushPayload.string(userInfo["instanceId"])
+            ?? SegmentifyPushPayload.string(userInfo["gcm.notification.instanceId"])
         apiKey = SegmentifyPushPayload.string(userInfo["apiKey"])
         dataCenterUrl = SegmentifyPushPayload.string(userInfo["dataCenterUrl"])
         userId = SegmentifyPushPayload.string(userInfo["userId"])
+        correlationId = SegmentifyPushPayload.string(userInfo["correlationId"])
         actions = SegmentifyPushPayload.actions(from: userInfo["actions"])
-        providerType = userInfo["gcm.message_id"] != nil ? .FIREBASE : .APNS
+        providerType = SegmentifyPushPayload.isFirebasePayload(userInfo) ? .FIREBASE : .APNS
+    }
+
+    /// FCM payloads carry `gcm.*` / `google.c.*` keys (e.g. `gcm.message_id`); anything else is APNs.
+    static func isFirebasePayload(_ userInfo: [AnyHashable: Any]) -> Bool {
+        return userInfo.keys.contains { key in
+            guard let key = key as? String else { return false }
+            return key.hasPrefix("gcm.") || key.hasPrefix("google.c.")
+        }
     }
 
     private static func string(_ value: Any?) -> String? {
