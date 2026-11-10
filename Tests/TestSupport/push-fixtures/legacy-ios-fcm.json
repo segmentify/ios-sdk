@@ -1,0 +1,13 @@
+{
+  "title": "Summer sale",
+  "message": "Up to 50% off",
+  "redirectUrl": "https://shop.example.com/sale",
+  "image": "https://cdn.example.com/sale.png",
+  "apiKey": "api-key",
+  "instanceId": "ins-1",
+  "dataCenterUrl": "https://dc.example.com",
+  "icon": "https://cdn.example.com/logo.png",
+  "actions": "[{\"action\":\"action0\",\"title\":\"Open\",\"redirectUrl\":\"https://shop.example.com/open\"}]",
+  "actionUrls": "[\"https://shop.example.com/open?_sgm_campaign=ins-1\"]",
+  "deeplink": "app://sale-ios"
+}

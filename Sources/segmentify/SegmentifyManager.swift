@@ -6,6 +6,7 @@ import Foundation
 #if canImport(UIKit)
 import UIKit
 #endif
+import UserNotifications
 
 enum SearchCodingKeys: String, CodingKey {
     case search
@@ -40,6 +41,7 @@ public class SegmentifyManager : NSObject {
     static let userLogoutCdpEventName = "USER_LOGOUT"
     static let userSubscribeEventName = "USER_SUBSCRIBE"
     static let userUnsubscribeEventName = "USER_UNSUBSCRIBE"
+    static let wishlistEventName = "WISHLIST"
     
     static let customerInformationStep = "customer"
     static let viewBasketStep = "view-basket"
@@ -53,7 +55,12 @@ public class SegmentifyManager : NSObject {
     static let impressionStep = "impression"
     static let widgetViewStep = "widget-view"
     static let clickStep = "click"
+    static let pushStep = "push"
     static let searchStep = "search"
+    static let wishlistAddStep = "add"
+    static let wishlistRemoveStep = "remove"
+    static let wishlistDetailStep = "detail"
+    static let wishlistViewFavoritesStep = "view-favorites"
     static let startIndex = 0
     
     private var params : Dictionary<AnyHashable, Any>?
@@ -114,10 +121,12 @@ public class SegmentifyManager : NSObject {
         return sessionKeepSecond
     }
 
-    public class func setConfig(apiKey: String,dataCenterUrl : String, subDomain : String) {
+    public class func setConfig(apiKey: String?, dataCenterUrl : String, subDomain : String, authHeader: String? = nil) {
         SegmentifyManager.setup.apiKey = apiKey
         SegmentifyManager.setup.dataCenterUrl = dataCenterUrl
         SegmentifyManager.setup.subDomain = subDomain
+        // Sent as the Authorization header exactly as given (e.g. "Basic <token>"); blank means not set
+        SegmentifyManager.setup.authHeader = SegmentifyAuth.authorizationValue(authHeader)
         segmentifySharedInstance = SegmentifyManager.init()
     }
     
@@ -148,13 +157,15 @@ public class SegmentifyManager : NSObject {
     override init() {
         super.init()
         self.eventRequest = SegmentifyRegisterRequest()
-        
+
+        let authHeader = SegmentifyManager.setup.authHeader
+        eventRequest.authHeader = authHeader
         let appkey = SegmentifyManager.setup.apiKey
-        guard appkey != nil else {
-            print("Error - you must fill appKey before accessing SegmentifyManager.shared")
+        guard authHeader != nil || appkey?.isEmpty == false else {
+            print("Error - you must set apiKey or authHeader in setConfig before accessing SegmentifyManager.shared")
             return
         }
-        eventRequest.apiKey = appkey!
+        eventRequest.apiKey = appkey
         
         let subDomain = SegmentifyManager.setup.subDomain
         guard subDomain != nil else {
@@ -976,13 +987,20 @@ public class SegmentifyManager : NSObject {
             print("Error - you must set dataCenterUrlPush in setConfig before accessing sendNotification event")
             return
         }
-        
-        let encodedData = try? JSONEncoder().encode(segmentifyObject)
+
+        let encodedData = SegmentifyManager.subscriptionBody(for: segmentifyObject)
         let dataCenter  = SegmentifyManager.setup.dataCenterUrlPush
-        let url = URL(string: dataCenter! + "/native/subscription/push?apiKey=" + SegmentifyManager.setup.apiKey!)!
+        
+        // apiKey query param only when no Authorization header is configured
+        let url = SegmentifyAuth.url(dataCenter! + "/native/subscription/push",
+                                     apiKey: SegmentifyManager.setup.apiKey,
+                                     authorization: SegmentifyManager.setup.authHeader)!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let authHeader = SegmentifyManager.setup.authHeader {
+            request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        }
         request.httpBody = encodedData
         
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
@@ -995,6 +1013,10 @@ public class SegmentifyManager : NSObject {
     }
 
     open func sendNotificationInteraction(segmentifyObject : NotificationModel) {
+        // push-sender sends "" when a push has no correlationId; don't report a blank one
+        if segmentifyObject.correlationId?.trimmingCharacters(in: .whitespaces).isEmpty == true {
+            segmentifyObject.correlationId = nil
+        }
         
         if(SegmentifyManager.setup.dataCenterUrlPush == nil || SegmentifyManager.setup.dataCenterUrlPush == ""){
             print("Error - you must set dataCenterUrlPush in setConfig before accessing sendNotificationInteraction event")
@@ -1022,17 +1044,24 @@ public class SegmentifyManager : NSObject {
             
             let model  = InteractionModel()
             model.instanceId = instanceId
-            model.interactionId = instanceId
+            model.interactionId = segmentifyObject.interactionId ?? instanceId
 
-            sendClick(segmentifyObject: model)
+            sendPushClick(segmentifyObject: model)
         }
 
         let encodedData = try? JSONEncoder().encode(segmentifyObject)
         let dataCenter  = SegmentifyManager.setup.dataCenterUrlPush
-        let url = URL(string: dataCenter!  + "/native/interaction/notification?apiKey=" + SegmentifyManager.setup.apiKey!)!
+        
+        // apiKey query param only when no Authorization header is configured
+        let url = SegmentifyAuth.url(dataCenter! + "/native/interaction/notification",
+                                     apiKey: SegmentifyManager.setup.apiKey,
+                                     authorization: SegmentifyManager.setup.authHeader)!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let authHeader = SegmentifyManager.setup.authHeader {
+            request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        }
         request.httpBody = encodedData
 
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
@@ -1044,8 +1073,141 @@ public class SegmentifyManager : NSObject {
         task.resume()
     }
 
+    open func handlePushReceived(_ payload: SegmentifyPushPayload) {
+        sendPushInteraction(payload: payload, type: .VIEW)
+    }
+
+    open func handlePushClicked(_ payload: SegmentifyPushPayload) {
+        sendPushInteraction(payload: payload, type: .CLICK)
+    }
+
+    private func sendPushInteraction(payload: SegmentifyPushPayload, type: NotificationType) {
+        guard let model = SegmentifyManager.pushInteractionModel(payload: payload, type: type) else {
+            print("Error - push payload has no instanceId, push \(type.rawValue) event is not sent")
+            return
+        }
+        sendNotificationInteraction(segmentifyObject: model)
+    }
+
+    static func pushInteractionModel(payload: SegmentifyPushPayload, type: NotificationType) -> NotificationModel? {
+        guard let instanceId = payload.instanceId else {
+            return nil
+        }
+        let model = NotificationModel()
+        model.type = type
+        model.instanceId = instanceId
+        model.correlationId = payload.correlationId
+        model.providerType = payload.providerType
+        return model
+    }
+
+    static func subscriptionBody(for segmentifyObject: NotificationModel) -> Data? {
+        segmentifyObject.sdkVersion = SegmentifyManager.registrationSdkVersion(for: segmentifyObject.type)
+        return try? JSONEncoder().encode(segmentifyObject)
+    }
+
+    static func registrationSdkVersion(for type: NotificationType?) -> String? {
+        guard type == .PERMISSION_INFO else {
+            return nil
+        }
+        return SegmentifyManager.sdkVersion
+    }
+
     open func getTrackingParameters()->UtmModel{
         return UtmModel()
+    }
+
+    // MARK: - Push Notification Handling
+
+    /// Call from your `UNNotificationServiceExtension`'s `didReceive(_:withContentHandler:)`
+    /// to automatically download and attach the image from the Segmentify push payload.
+    ///
+    /// Example:
+    /// ```
+    /// override func didReceive(_ request: UNNotificationRequest,
+    ///                          withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
+    ///     SegmentifyManager.sharedManager().handlePushNotificationExtension(
+    ///         request: request,
+    ///         contentHandler: contentHandler
+    ///     )
+    /// }
+    /// ```
+    open func handlePushNotificationExtension(
+        request: UNNotificationRequest,
+        contentHandler: @escaping (UNNotificationContent) -> Void
+    ) {
+        SegmentifyPushNotificationHandler.handleNotificationServiceExtension(
+            request: request,
+            contentHandler: contentHandler
+        )
+    }
+
+    /// Call from `userNotificationCenter(_:didReceive:withCompletionHandler:)` to handle
+    /// deeplink navigation and send click interaction automatically.
+    ///
+    /// - Parameters:
+    ///   - response: The notification response from the delegate callback.
+    ///   - completion: Called after processing is complete.
+    ///
+    /// This method:
+    /// 1. Parses the Segmentify payload
+    /// 2. Sends a CLICK interaction event
+    /// 3. Opens the deeplink URL natively via `UIApplication.shared.open(_:)`
+    ///    (uses the `deeplink` field first, falls back to `redirectUrl`)
+    ///
+    /// Example:
+    /// ```
+    /// func userNotificationCenter(_ center: UNUserNotificationCenter,
+    ///                             didReceive response: UNNotificationResponse,
+    ///                             withCompletionHandler completionHandler: @escaping () -> Void) {
+    ///     SegmentifyManager.sharedManager().handlePushNotificationResponse(
+    ///         response: response,
+    ///         completion: completionHandler
+    ///     )
+    /// }
+    /// ```
+    ///
+    /// Not available in app extensions (it opens the deeplink with `UIApplication.shared`).
+    /// In a Notification Service Extension use `handlePushNotificationExtension` instead.
+    @available(iOSApplicationExtension, unavailable)
+    open func handlePushNotificationResponse(
+        response: UNNotificationResponse,
+        completion: @escaping () -> Void
+    ) {
+        let userInfo = response.notification.request.content.userInfo
+        let payload = SegmentifyPushNotificationHandler.parsePayload(userInfo: userInfo)
+
+        guard payload.isSegmentifyNotification else {
+            completion()
+            return
+        }
+
+        // Send CLICK interaction (same construction path as VIEW, incl. providerType)
+        if payload.instanceId != nil {
+            sendNotificationInteraction(
+                segmentifyObject: NotificationModel.fromPush(userInfo: userInfo, type: .CLICK)
+            )
+        }
+
+        // Open deeplink natively
+        if let url = payload.effectiveLink {
+            DispatchQueue.main.async {
+                #if canImport(UIKit)
+                UIApplication.shared.open(url, options: [:]) { _ in
+                    completion()
+                }
+                #else
+                completion()
+                #endif
+            }
+        } else {
+            completion()
+        }
+    }
+
+    /// Returns the parsed Segmentify push payload from a notification's userInfo.
+    open func parsePushPayload(userInfo: [AnyHashable: Any]) -> SegmentifyPushPayload {
+        return SegmentifyPushNotificationHandler.parsePayload(userInfo: userInfo)
     }
 
     //EVENTS
@@ -1551,6 +1713,87 @@ public class SegmentifyManager : NSObject {
         
         setIDAndSendEvent()
     }
+
+    open func sendWishlist(segmentifyObject : WishlistModel) {
+        let step = segmentifyObject.step
+        let productSteps = [SegmentifyManager.wishlistAddStep, SegmentifyManager.wishlistRemoveStep, SegmentifyManager.wishlistDetailStep]
+        if step == SegmentifyManager.wishlistViewFavoritesStep {
+            guard segmentifyObject.favoritesList != nil else {
+                print("Error - you must fill favoritesList before accessing sendWishlist event method with step view-favorites")
+                return
+            }
+        } else {
+            guard let step = step, productSteps.contains(step) else {
+                print("Error - you must fill step with add, remove, detail or view-favorites before accessing sendWishlist event method")
+                return
+            }
+            guard let productId = segmentifyObject.productId, !productId.isEmpty else {
+                print("Error - you must fill productId before accessing sendWishlist event method with step \(step)")
+                return
+            }
+        }
+
+        eventRequest.eventName = SegmentifyManager.wishlistEventName
+        eventRequest.instanceId = nil
+        eventRequest.interactionId = nil
+        eventRequest.wishlistStep = step
+        eventRequest.productID = segmentifyObject.productId
+        eventRequest.favoritesList = segmentifyObject.favoritesList
+
+        if UserDefaults.standard.object(forKey: "UserSentUserId") != nil {
+            eventRequest.userID = UserDefaults.standard.object(forKey: "UserSentUserId") as? String
+        } else {
+            if UserDefaults.standard.object(forKey: "SEGMENTIFY_USER_ID") != nil {
+                self.eventRequest.userID = UserDefaults.standard.object(forKey: "SEGMENTIFY_USER_ID") as? String
+            }
+        }
+
+        if segmentifyObject.lang != nil {
+            eventRequest.lang = segmentifyObject.lang
+        }
+        if segmentifyObject.currency != nil {
+            eventRequest.currency = segmentifyObject.currency
+        }
+        if segmentifyObject.region != nil {
+            eventRequest.region = segmentifyObject.region
+        }
+        if self.clickedBanners.count > 0 {
+            var clickedBannerArray = [Any]()
+            self.clickedBanners.forEach {
+                clickedBanner in
+                clickedBannerArray.append(clickedBanner.nsDictionary)
+            }
+            eventRequest.activeBanners = clickedBannerArray
+        }
+
+        setIDAndSendEvent()
+    }
+
+    open func sendWishlistAdd(productId : String) {
+        sendWishlistProductStep(step: SegmentifyManager.wishlistAddStep, productId: productId)
+    }
+
+    open func sendWishlistRemove(productId : String) {
+        sendWishlistProductStep(step: SegmentifyManager.wishlistRemoveStep, productId: productId)
+    }
+
+    open func sendWishlistDetail(productId : String) {
+        sendWishlistProductStep(step: SegmentifyManager.wishlistDetailStep, productId: productId)
+    }
+
+    open func sendWishlistViewFavorites(favoritesList : [String]) {
+        let wishlistModel = WishlistModel()
+        wishlistModel.step = SegmentifyManager.wishlistViewFavoritesStep
+        wishlistModel.favoritesList = favoritesList
+        sendWishlist(segmentifyObject: wishlistModel)
+    }
+
+    private func sendWishlistProductStep(step : String, productId : String) {
+        let wishlistModel = WishlistModel()
+        wishlistModel.step = step
+        wishlistModel.productId = productId
+        sendWishlist(segmentifyObject: wishlistModel)
+    }
     
     //Product View Event
     @objc open func sendProductView(segmentifyObject : ProductModel, callback: @escaping (_ recommendation: [RecommendationModel]) -> Void) {
@@ -1841,9 +2084,48 @@ public class SegmentifyManager : NSObject {
         eventRequest.userOperationStep = SegmentifyManager.widgetViewStep
     }
     
-    func sendClick(segmentifyObject : InteractionModel) {
-        eventRequest.eventName = SegmentifyManager.interactionEventName
-        eventRequest.userOperationStep = SegmentifyManager.clickStep
+    /// Sends the push click as an INTERACTION event on its own request, so push-specific
+    /// fields (type, instanceId, interactionId) never leak into the shared `eventRequest`
+    /// used by later events. Runs on the main queue like the other legacy events, since
+    /// it is usually called from the notification delegate's thread.
+    func sendPushClick(segmentifyObject : InteractionModel) {
+        let instanceId = segmentifyObject.instanceId
+        let interactionId = segmentifyObject.interactionId
+
+        let send = {
+            self.resolveCdpSession { userId, sessionId in
+                let request = self.makePushClickRequest(
+                    instanceId: instanceId,
+                    interactionId: interactionId,
+                    userId: userId,
+                    sessionId: sessionId
+                )
+                SegmentifyConnectionManager.sharedInstance.request(
+                    requestModel: request,
+                    success: { _ in },
+                    failure: { error in print("Error - push click interaction failed: \(error)") }
+                )
+            }
+        }
+
+        if Thread.isMainThread {
+            send()
+        } else {
+            DispatchQueue.main.async(execute: send)
+        }
+    }
+
+    func makePushClickRequest(instanceId: String?, interactionId: String?, userId: String?, sessionId: String?) -> SegmentifyRegisterRequest {
+        let request = makeCdpRequest()
+        request.eventName = SegmentifyManager.interactionEventName
+        request.type = SegmentifyManager.pushStep
+        request.instanceId = instanceId
+        request.interactionId = interactionId
+        request.userOperationStep = nil
+        request.params = nil
+        request.userID = userId
+        request.sessionID = sessionId
+        return request
     }
     
     //Alternative Events
@@ -2520,6 +2802,9 @@ public class SegmentifyManager : NSObject {
             requestURL = URL(string: dataCenterUrl + "/get/key?count=2")!
         }
         let urlRequest: NSMutableURLRequest = NSMutableURLRequest(url: requestURL)
+        if let authHeader = SegmentifyManager.setup.authHeader {
+            urlRequest.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        }
         let task = SegmentifyConnectionManager.urlSession.dataTask(with: urlRequest as URLRequest) {
             (data, response, error) -> Void in
             
@@ -2644,6 +2929,7 @@ extension SegmentifyManager: CdpSessionResolving, CdpRequestBuilding {
     func makeCdpRequest() -> SegmentifyRegisterRequest {
         let request = SegmentifyRegisterRequest()
         request.apiKey = eventRequest.apiKey
+        request.authHeader = eventRequest.authHeader
         request.dataCenterUrl = eventRequest.dataCenterUrl
         request.subdomain = eventRequest.subdomain
         request.sdkVersion = eventRequest.sdkVersion

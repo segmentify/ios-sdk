@@ -26,11 +26,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             }
         }
 
-        // Segmentify configuration
-        SegmentifyManager.config(appkey: "3c9e211a-d049-43d5-aa4a-f98b7e66e482",
-                                 dataCenterUrl: "https://gandalf-qa.segmentify.com",
-                                 subDomain: "demosfy.com")
-        SegmentifyManager.setPushConfig(dataCenterUrlPush: "https://gimli-qa.segmentify.com")
+        // Segmentify configuration (Segmentify QA by default; see DemoEnvironment to override)
+        DemoEnvironment.apply()
         _ = SegmentifyManager.logStatus(isVisible: true)
         _ = SegmentifyManager.setSessionKeepSecond(sessionKeepSecond: 604800)
 
@@ -63,14 +60,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
 
-        let userInfo = notification.request.content.userInfo
-        let instanceId = userInfo["instanceId"] as? String ?? ""
-
-        let obj = NotificationModel()
-        obj.type = NotificationType.VIEW
-        obj.providerType = ProviderType.APNS
-        obj.instanceId = instanceId
-        SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
+        // handlePushReceived sends the VIEW interaction with instanceId (incl. FCM's
+        // gcm.notification.instanceId), correlationId and providerType from the payload
+        let payload = SegmentifyPushPayload(userInfo: notification.request.content.userInfo)
+        SegmentifyManager.sharedManager().handlePushReceived(payload)
 
         completionHandler([.banner, .sound, .badge])
     }
@@ -79,18 +72,48 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
+        SegmentifyManager.sharedManager().handlePushNotificationResponse(
+            response: response,
+            completion: completionHandler
+        )
+    }
+}
 
-        let userInfo = response.notification.request.content.userInfo
-        print("Notification tapped (APNs), userInfo: \(userInfo)")
+/// Backend settings for this demo. The defaults are Segmentify QA. To run against another
+/// environment (e.g. Unifonic), override any value without editing code, either as an
+/// environment variable in the scheme (Edit Scheme > Run > Arguments) or in a gitignored
+/// Secrets.plist in the app target. See Demo/README.md and Demo/Secrets.example.plist.
+enum DemoEnvironment {
+    static var authHeader: String? { value("SEGMENTIFY_AUTH_HEADER") }
+    /// With an auth header and no explicit API key, no apiKey is sent.
+    static var apiKey: String? { value("SEGMENTIFY_API_KEY") ?? (authHeader == nil ? "3c9e211a-d049-43d5-aa4a-f98b7e66e482" : nil) }
+    static var dataCenterUrl: String { value("SEGMENTIFY_DATA_CENTER_URL") ?? "https://gandalf-qa.segmentify.com" }
+    static var pushDataCenterUrl: String { value("SEGMENTIFY_PUSH_DATA_CENTER_URL") ?? "https://gimli-qa.segmentify.com" }
+    static var subDomain: String { value("SEGMENTIFY_SUB_DOMAIN") ?? "demosfy.com" }
 
-        let instanceId = userInfo["instanceId"] as? String ?? ""
+    static func apply() {
+        SegmentifyManager.setConfig(
+            apiKey: apiKey,
+            dataCenterUrl: dataCenterUrl,
+            subDomain: subDomain,
+            authHeader: authHeader
+        )
+        SegmentifyManager.setPushConfig(dataCenterUrlPush: pushDataCenterUrl)
+    }
 
-        let obj = NotificationModel()
-        obj.type = NotificationType.CLICK
-        obj.providerType = ProviderType.APNS
-        obj.instanceId = instanceId
-        SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
+    private static let secrets: [String: Any] = {
+        guard let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
+              let values = NSDictionary(contentsOf: url) as? [String: Any] else {
+            return [:]
+        }
+        return values
+    }()
 
-        completionHandler()
+    private static func value(_ key: String) -> String? {
+        let raw = ProcessInfo.processInfo.environment[key] ?? secrets[key] as? String
+        guard let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 }
