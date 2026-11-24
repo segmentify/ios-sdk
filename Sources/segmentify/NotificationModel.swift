@@ -49,7 +49,12 @@ public class NotificationModel: Codable {
     /// copying instanceId and correlationId so shown/clicked can be tied to the send request,
     /// and the provider (FIREBASE/APNS) inferred from the payload so VIEW and CLICK report the same one.
     public static func fromPush(userInfo: [AnyHashable: Any], type: NotificationType) -> NotificationModel {
-        let payload = SegmentifyPushPayload(userInfo: userInfo)
+        return fromPush(payload: SegmentifyPushPayload(userInfo: userInfo), type: type)
+    }
+
+    /// Same as `fromPush(userInfo:type:)` for an already parsed payload. This is the single place
+    /// that copies push fields into a VIEW/CLICK model.
+    public static func fromPush(payload: SegmentifyPushPayload, type: NotificationType) -> NotificationModel {
         let model = NotificationModel()
         model.type = type
         model.instanceId = payload.instanceId

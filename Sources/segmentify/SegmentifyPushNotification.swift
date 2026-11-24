@@ -56,12 +56,23 @@ public class SegmentifyPushNotificationHandler {
 
     // MARK: - Private Helpers
 
+    /// A Notification Service Extension gets about 30 s, and `URLSession.shared` waits up to 60 s.
+    /// Give up on the image well before that so `contentHandler` is always called in time.
+    static let imageDownloadTimeout: TimeInterval = 25
+
+    private static let imageSession: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = SegmentifyPushNotificationHandler.imageDownloadTimeout
+        configuration.timeoutIntervalForResource = SegmentifyPushNotificationHandler.imageDownloadTimeout
+        return URLSession(configuration: configuration)
+    }()
+
     private static func downloadAndAttachImage(
         url: URL,
         to content: UNMutableNotificationContent,
         completion: @escaping (UNMutableNotificationContent) -> Void
     ) {
-        let task = URLSession.shared.downloadTask(with: url) { localUrl, response, error in
+        let task = imageSession.downloadTask(with: url) { localUrl, response, error in
             defer { completion(content) }
 
             guard let localUrl = localUrl, error == nil else { return }

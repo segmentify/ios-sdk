@@ -45,15 +45,18 @@ public struct SegmentifyPushPayload: Equatable {
         return deeplink ?? redirectUrl
     }
 
-    /// `targetUrl` as a URL: prefers `deeplink`, falls back to `redirectUrl` when the deeplink is missing or invalid.
+    /// `targetUrl` as a URL: prefers `deeplink`, falls back to `redirectUrl` when the deeplink is
+    /// missing or not a URL with a scheme. The scheme check matters since iOS 17, where `URL(string:)`
+    /// percent-encodes invalid input instead of returning nil.
     public var effectiveLink: URL? {
-        if let deeplink = deeplink, let url = URL(string: deeplink) {
-            return url
+        return SegmentifyPushPayload.absoluteURL(deeplink) ?? SegmentifyPushPayload.absoluteURL(redirectUrl)
+    }
+
+    private static func absoluteURL(_ value: String?) -> URL? {
+        guard let value = value, let url = URL(string: value), url.scheme != nil else {
+            return nil
         }
-        if let redirectUrl = redirectUrl, let url = URL(string: redirectUrl) {
-            return url
-        }
-        return nil
+        return url
     }
 
     /// Whether this notification originated from Segmentify (has instanceId or apiKey).

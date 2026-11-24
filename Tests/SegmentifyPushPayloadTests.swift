@@ -94,6 +94,27 @@ final class SegmentifyPushPayloadTests: XCTestCase {
         XCTAssertEqual(payload.targetUrl, "https://shop.example.com/sale")
     }
 
+    func testDeeplinkWithoutSchemeFallsBackToRedirectUrl() throws {
+        let payload = SegmentifyPushPayload(userInfo: adding(["deeplink": "not a url with spaces"], to: try fixture("legacy-ios-fcm")))
+
+        XCTAssertEqual(payload.effectiveLink?.absoluteString, "https://shop.example.com/sale")
+    }
+
+    func testValidDeeplinkIsTheEffectiveLink() throws {
+        XCTAssertEqual(SegmentifyPushPayload(userInfo: try fixture("legacy-ios-fcm")).effectiveLink?.absoluteString, "app://sale-ios")
+    }
+
+    func testPushInteractionAndFromPushBuildTheSameModel() throws {
+        let payload = SegmentifyPushPayload(userInfo: ["gcm.message_id": "0:1", "instanceId": "ins-1", "correlationId": "corr-1"])
+
+        let viaManager = try XCTUnwrap(SegmentifyManager.pushInteractionModel(payload: payload, type: .CLICK))
+        let viaFromPush = NotificationModel.fromPush(payload: payload, type: .CLICK)
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        XCTAssertEqual(try encoder.encode(viaManager), try encoder.encode(viaFromPush))
+    }
+
     func testDeeplinkIsTheTargetUrl() throws {
         XCTAssertEqual(SegmentifyPushPayload(userInfo: try fixture("legacy-ios-fcm")).targetUrl, "app://sale-ios")
     }

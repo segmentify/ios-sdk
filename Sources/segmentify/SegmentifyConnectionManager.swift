@@ -94,7 +94,10 @@ class SegmentifyConnectionManager : NSObject, URLSessionDelegate  {
         }
         request.timeoutInterval = TimeInterval(SegmentifyConnectionManager.timeoutInterval)
         if SegmentifyManager.logStatus == true {
-            print("request header : \(String(describing: (request.allHTTPHeaderFields)!))")
+            // Never log the configured credential
+            var headers = request.allHTTPHeaderFields ?? [:]
+            if headers["Authorization"] != nil { headers["Authorization"] = "<redacted>" }
+            print("request header : \(headers)")
         }
         
         if (requestModel.method == "POST" || requestModel.method == "PUT") {

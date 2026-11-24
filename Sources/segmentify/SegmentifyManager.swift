@@ -1090,15 +1090,10 @@ public class SegmentifyManager : NSObject {
     }
 
     static func pushInteractionModel(payload: SegmentifyPushPayload, type: NotificationType) -> NotificationModel? {
-        guard let instanceId = payload.instanceId else {
+        guard payload.instanceId != nil else {
             return nil
         }
-        let model = NotificationModel()
-        model.type = type
-        model.instanceId = instanceId
-        model.correlationId = payload.correlationId
-        model.providerType = payload.providerType
-        return model
+        return NotificationModel.fromPush(payload: payload, type: type)
     }
 
     static func subscriptionBody(for segmentifyObject: NotificationModel) -> Data? {
