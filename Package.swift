@@ -14,16 +14,16 @@ let package = Package(
     targets: [
         .target(
             name: "Segmentify",
-            path: "Sources/Segmentify",
+            // The directory is lowercase in git; keep the path identical so the
+            // package also resolves on case-sensitive file systems.
+            path: "Sources/segmentify",
             exclude: [
-                "Info.plist",
-                "Example"
+                // Umbrella header of the legacy framework build; unused by SwiftPM.
+                "Segmentify.h"
             ],
             resources: [
-                .process("Resources"),
                 .copy("version")
-            ],
-            publicHeadersPath: "include"
+            ]
         ),
         .testTarget(
             name: "SegmentifyTests",
