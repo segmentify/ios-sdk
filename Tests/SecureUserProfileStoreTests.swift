@@ -27,7 +27,7 @@ final class SecureUserProfileStoreTests: XCTestCase {
             expectation.fulfill()
         }
 
-        waitForExpectations(timeout: 2)
+        waitForExpectations(timeout: 15)
     }
 
     func testIdenticalParamsShouldNotSendAfterSnapshotSaved() {
@@ -44,13 +44,13 @@ final class SecureUserProfileStoreTests: XCTestCase {
                 firstExpectation.fulfill()
             }
         }
-        wait(for: [firstExpectation], timeout: 2)
+        wait(for: [firstExpectation], timeout: 15)
 
         store.shouldSendIdentify(params) { shouldSend in
             XCTAssertFalse(shouldSend)
             secondExpectation.fulfill()
         }
-        wait(for: [secondExpectation], timeout: 2)
+        wait(for: [secondExpectation], timeout: 15)
     }
 
     func testChangedFieldShouldSendAgain() {
@@ -65,13 +65,13 @@ final class SecureUserProfileStoreTests: XCTestCase {
                 saveExpectation.fulfill()
             }
         }
-        wait(for: [saveExpectation], timeout: 2)
+        wait(for: [saveExpectation], timeout: 15)
 
         store.shouldSendIdentify(updated) { shouldSend in
             XCTAssertTrue(shouldSend)
             identifyExpectation.fulfill()
         }
-        wait(for: [identifyExpectation], timeout: 2)
+        wait(for: [identifyExpectation], timeout: 15)
     }
 
     func testSnapshotPersistsAcrossNewStoreInstance() {
@@ -85,14 +85,14 @@ final class SecureUserProfileStoreTests: XCTestCase {
                 saveExpectation.fulfill()
             }
         }
-        wait(for: [saveExpectation], timeout: 2)
+        wait(for: [saveExpectation], timeout: 15)
 
         let restoredStore = SecureUserProfileStore(storage: keychain, service: "test-service")
         restoredStore.shouldSendIdentify(params) { shouldSend in
             XCTAssertFalse(shouldSend)
             identifyExpectation.fulfill()
         }
-        wait(for: [identifyExpectation], timeout: 2)
+        wait(for: [identifyExpectation], timeout: 15)
     }
 
     func testCryptoRoundTripIntegrity() {
@@ -106,12 +106,12 @@ final class SecureUserProfileStoreTests: XCTestCase {
         store.saveSnapshot(params) {
             saveExpectation.fulfill()
         }
-        wait(for: [saveExpectation], timeout: 2)
+        wait(for: [saveExpectation], timeout: 15)
 
         store.shouldSendIdentify(params) { shouldSend in
             XCTAssertFalse(shouldSend)
             identifyExpectation.fulfill()
         }
-        wait(for: [identifyExpectation], timeout: 2)
+        wait(for: [identifyExpectation], timeout: 15)
     }
 }

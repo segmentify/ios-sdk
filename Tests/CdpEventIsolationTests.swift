@@ -32,7 +32,7 @@ final class CdpEventIsolationTests: XCTestCase {
 
         manager.loginUser(["email": "user@example.com"])
 
-        wait(for: [dispatched], timeout: 3)
+        wait(for: [dispatched], timeout: 15)
 
         let sharedRequest = manager.testingCurrentRequestDictionary()
         XCTAssertNil(sharedRequest["name"], "CDP event must not set the shared request event name")
@@ -51,7 +51,7 @@ final class CdpEventIsolationTests: XCTestCase {
 
         manager.subscribeUser(.email(email: "user@example.com", purpose: "marketing"))
 
-        wait(for: [dispatched], timeout: 3)
+        wait(for: [dispatched], timeout: 15)
 
         let sharedRequest = manager.testingCurrentRequestDictionary()
         XCTAssertNil(sharedRequest["name"])

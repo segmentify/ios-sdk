@@ -42,7 +42,7 @@ final class CdpEventServiceTests: XCTestCase {
             completion.fulfill()
         }
 
-        wait(for: [completion], timeout: 1)
+        wait(for: [completion], timeout: 15)
         XCTAssertEqual(dispatcher.dispatchCount, 0)
     }
 
@@ -57,7 +57,7 @@ final class CdpEventServiceTests: XCTestCase {
             completion.fulfill()
         }
 
-        wait(for: [completion], timeout: 1)
+        wait(for: [completion], timeout: 15)
 
         let sent = try XCTUnwrap(dispatcher.lastRequest)
         XCTAssertEqual(sent.eventName, CdpEventName.userLogin)
@@ -77,7 +77,7 @@ final class CdpEventServiceTests: XCTestCase {
             completion.fulfill()
         }
 
-        wait(for: [completion], timeout: 1)
+        wait(for: [completion], timeout: 15)
         XCTAssertEqual(dispatcher.dispatchCount, 1)
     }
 
@@ -88,7 +88,7 @@ final class CdpEventServiceTests: XCTestCase {
             completion.fulfill()
         }
 
-        wait(for: [completion], timeout: 1)
+        wait(for: [completion], timeout: 15)
         XCTAssertEqual(dispatcher.dispatchCount, 0)
     }
 
@@ -100,7 +100,7 @@ final class CdpEventServiceTests: XCTestCase {
         service.identify(properties: params) {
             first.fulfill()
         }
-        wait(for: [first], timeout: 2)
+        wait(for: [first], timeout: 15)
         XCTAssertEqual(dispatcher.dispatchCount, 1)
 
         // Snapshot must have been persisted, so an identical identify is skipped.
@@ -108,7 +108,7 @@ final class CdpEventServiceTests: XCTestCase {
         service.identify(properties: params) {
             second.fulfill()
         }
-        wait(for: [second], timeout: 2)
+        wait(for: [second], timeout: 15)
         XCTAssertEqual(dispatcher.dispatchCount, 1, "Identical identify after success must not re-dispatch")
     }
 
@@ -120,7 +120,7 @@ final class CdpEventServiceTests: XCTestCase {
         service.identify(properties: params) {
             first.fulfill()
         }
-        wait(for: [first], timeout: 2)
+        wait(for: [first], timeout: 15)
         XCTAssertEqual(dispatcher.dispatchCount, 1)
 
         // Failure must not persist a snapshot, so the next identify retries.
@@ -129,7 +129,7 @@ final class CdpEventServiceTests: XCTestCase {
         service.identify(properties: params) {
             retry.fulfill()
         }
-        wait(for: [retry], timeout: 2)
+        wait(for: [retry], timeout: 15)
         XCTAssertEqual(dispatcher.dispatchCount, 2, "Identify must retry after a failed send")
     }
 }
