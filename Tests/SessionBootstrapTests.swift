@@ -87,15 +87,6 @@ final class SessionBootstrapTests: XCTestCase {
         manager.sendPageView(segmentifyObject: page) { _ in onCallback() }
     }
 
-    /// Polls instead of sleeping a fixed time: CI simulators stall for seconds.
-    private func waitUntil(_ what: String, _ condition: @escaping () -> Bool) {
-        let deadline = Date().addingTimeInterval(15)
-        while !condition() && Date() < deadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
-        }
-        XCTAssertTrue(condition(), "timed out waiting for \(what)")
-    }
-
     /// Lets late requests arrive so that "no more than N" assertions mean something.
     private func settle(_ seconds: TimeInterval = 0.5) {
         let settled = expectation(description: "settled")

@@ -1,4 +1,5 @@
 import Foundation
+import XCTest
 @testable import Segmentify
 
 final class MockURLProtocol: URLProtocol {
@@ -133,5 +134,16 @@ enum SegmentifyTestSupport {
             }
             throw URLError(.unsupportedURL)
         }
+    }
+}
+
+extension XCTestCase {
+    /// Polls instead of sleeping a fixed time: CI simulators stall for seconds.
+    func waitUntil(_ what: String, timeout: TimeInterval = 15, _ condition: @escaping () -> Bool) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertTrue(condition(), "timed out waiting for \(what)")
     }
 }

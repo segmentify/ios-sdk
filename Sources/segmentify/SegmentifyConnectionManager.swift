@@ -8,6 +8,7 @@ class SegmentifyConnectionManager : NSObject, URLSessionDelegate  {
     
     static let timeoutInterval = 10
     static let baseUrl = "/add/events/v1.json?apiKey="
+    static let successStatusCode = "SUCCESS"
     
     static let sharedInstance : SegmentifyConnectionManager = {
         let shareManager = SegmentifyConnectionManager()
@@ -124,7 +125,8 @@ class SegmentifyConnectionManager : NSObject, URLSessionDelegate  {
                 return
             }
             guard (200...299).contains(remoteResponse.statusCode) else {
-                fail(SegmentifyNetworkError.httpStatus(remoteResponse.statusCode, body: nil))
+                let body = data.flatMap { String(data: $0, encoding: .utf8) }
+                fail(SegmentifyNetworkError.httpStatus(remoteResponse.statusCode, body: (body?.isEmpty ?? true) ? nil : body))
                 return
             }
 
@@ -132,6 +134,12 @@ class SegmentifyConnectionManager : NSObject, URLSessionDelegate  {
                 try? JSONSerialization.jsonObject(with: $0, options: .allowFragments)
             } as? [String:AnyObject]
             self.log("Server response code : \(remoteResponse.statusCode), response : \(String(describing: jsonObject))")
+
+            // The backend answers 200 even when it refuses an event.
+            if let statusCode = jsonObject?["statusCode"] as? String, statusCode != SegmentifyConnectionManager.successStatusCode {
+                fail(SegmentifyNetworkError.rejected(statusCode: statusCode))
+                return
+            }
 
             DispatchQueue.main.async {
                 success(jsonObject ?? [:])

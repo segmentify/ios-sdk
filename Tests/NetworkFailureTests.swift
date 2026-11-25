@@ -23,14 +23,6 @@ final class NetworkFailureTests: XCTestCase {
         super.tearDown()
     }
 
-    private func waitUntil(_ what: String, _ condition: @escaping () -> Bool) {
-        let deadline = Date().addingTimeInterval(15)
-        while !condition() && Date() < deadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
-        }
-        XCTAssertTrue(condition(), "timed out waiting for \(what)")
-    }
-
     /// Answers page views with the given status and body; everything else gets
     /// an empty recommendation response.
     private func servePageView(status: Int, body: Data) {
