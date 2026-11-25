@@ -2581,7 +2581,8 @@ public class SegmentifyManager : NSObject {
             finishSessionRequest(succeeded: false)
             return
         }
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delays[attempt - 1]) {
+        // Default QoS: utility work can be held back for seconds on a busy device.
+        DispatchQueue.global().asyncAfter(deadline: .now() + delays[attempt - 1]) {
             self.performSessionRequest(attempt: attempt + 1)
         }
     }
@@ -2715,9 +2716,19 @@ public class SegmentifyManager : NSObject {
         eventRequest.sessionID = sessionId
     }
 
+    /// True when no key request is running and nobody waits for one.
+    var testingIsSessionRequestIdle: Bool {
+        sessionLock.lock()
+        defer { sessionLock.unlock() }
+        return !isRequestingSession && sessionWaiters.isEmpty
+    }
+
     func testingClearNetworkSession() {
         eventRequest.sessionID = nil
         eventRequest.userTraitsProperties = nil
+        sessionLock.lock()
+        waitingEvents.removeAll()
+        sessionLock.unlock()
     }
 
     func testingConfigureFacetedSearch(

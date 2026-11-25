@@ -24,6 +24,9 @@ final class SessionBootstrapTests: XCTestCase {
     }
 
     override func tearDown() {
+        // The manager is a singleton: let a running key request finish so that it
+        // cannot answer, or be joined by, the next test.
+        waitUntil("the session request to finish") { self.manager.testingIsSessionRequestIdle }
         URLProtocol.unregisterClass(MockURLProtocol.self)
         MockURLProtocol.requestHandler = nil
         SegmentifyManager.sessionRetryDelays = SegmentifyManager.defaultSessionRetryDelays
@@ -74,6 +77,15 @@ final class SessionBootstrapTests: XCTestCase {
         let page = PageModel()
         page.category = category
         manager.sendPageView(segmentifyObject: page) { _ in onCallback() }
+    }
+
+    /// Polls instead of sleeping a fixed time: CI simulators stall for seconds.
+    private func waitUntil(_ what: String, _ condition: @escaping () -> Bool) {
+        let deadline = Date().addingTimeInterval(15)
+        while !condition() && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertTrue(condition(), "timed out waiting for \(what)")
     }
 
     /// Lets late requests arrive so that "no more than N" assertions mean something.
@@ -161,6 +173,9 @@ final class SessionBootstrapTests: XCTestCase {
         basket.quantity = 1
 
         manager.sendAddOrRemoveBasket(segmentifyObject: basket)
+        waitUntil("three failed key requests") {
+            self.counts().key == 3 && self.manager.testingIsSessionRequestIdle
+        }
         settle()
         XCTAssertEqual(counts().key, 3)
         XCTAssertEqual(counts().event, 0)
@@ -168,6 +183,7 @@ final class SessionBootstrapTests: XCTestCase {
         let called = expectation(description: "callback")
         sendPageView { called.fulfill() }
         wait(for: [called], timeout: 15)
+        waitUntil("both events to be sent") { self.counts().event == 2 }
         settle()
 
         XCTAssertEqual(counts().key, 4)
