@@ -111,16 +111,20 @@ final class NetworkFailureTests: XCTestCase {
         case failure
     }
 
+    private var lastError: Error?
+
     private func outcome(of request: StubRequest) -> Outcome? {
         let finished = expectation(description: "request finished")
         finished.assertForOverFulfill = true
         var outcome: Outcome?
+        lastError = nil
 
         SegmentifyConnectionManager.sharedInstance.request(requestModel: request, success: { _ in
             outcome = .success
             finished.fulfill()
-        }, failure: { _ in
+        }, failure: { error in
             outcome = .failure
+            self.lastError = error
             finished.fulfill()
         })
 
@@ -146,6 +150,29 @@ final class NetworkFailureTests: XCTestCase {
         servePageView(status: 200, body: Data("{\"responses\":[[]]}".utf8))
 
         XCTAssertEqual(outcome(of: StubRequest()), .success)
+    }
+
+    // The backend answers every request with HTTP 200; a refusal is a body
+    // whose statusCode is not SUCCESS (gandalf ResponseHelper.getResponse).
+
+    func testEventRefusedByTheBackendIsAFailureCarryingTheReason() throws {
+        servePageView(status: 200, body: try SegmentifyTestSupport.jsonData(["statusCode": "NO_SESSIONID", "timestamp": 1]))
+
+        XCTAssertEqual(outcome(of: StubRequest()), .failure)
+        XCTAssertEqual(lastError as? SegmentifyNetworkError, .rejected(statusCode: "NO_SESSIONID"))
+    }
+
+    func testSuccessStatusCodeIsASuccess() throws {
+        servePageView(status: 200, body: try SegmentifyTestSupport.jsonData(["statusCode": "SUCCESS", "responses": [[]]]))
+
+        XCTAssertEqual(outcome(of: StubRequest()), .success)
+    }
+
+    func testHttpErrorKeepsTheResponseBody() {
+        servePageView(status: 400, body: Data("bad request: missing apiKey".utf8))
+
+        XCTAssertEqual(outcome(of: StubRequest()), .failure)
+        XCTAssertEqual(lastError as? SegmentifyNetworkError, .httpStatus(400, body: "bad request: missing apiKey"))
     }
 
     // CDP events

@@ -124,7 +124,7 @@ class SegmentifyConnectionManager : NSObject, URLSessionDelegate  {
                 return
             }
             guard (200...299).contains(remoteResponse.statusCode) else {
-                fail(SegmentifyNetworkError.httpStatus(remoteResponse.statusCode))
+                fail(SegmentifyNetworkError.httpStatus(remoteResponse.statusCode, body: nil))
                 return
             }
 
@@ -152,5 +152,9 @@ enum SegmentifyNetworkError: Error, Equatable {
     case invalidURL(String)
     case unserializableBody
     case noResponse
-    case httpStatus(Int)
+    /// The server answered with an HTTP error; `body` is what it sent along.
+    case httpStatus(Int, body: String?)
+    /// The server answered 200 but refused the event; `statusCode` is its
+    /// reason, for example NO_SESSIONID, INVALID_EVENT, BOT or TIMEOUT.
+    case rejected(statusCode: String)
 }
