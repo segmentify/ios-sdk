@@ -8,6 +8,7 @@ final class SessionBootstrapTests: XCTestCase {
     private let lock = NSLock()
     private var keyRequests = 0
     private var eventRequests = 0
+    private var eventBodies: [[String: Any]] = []
 
     override func setUp() {
         super.setUp()
@@ -19,6 +20,7 @@ final class SessionBootstrapTests: XCTestCase {
         SegmentifyManager.sessionRetryDelays = [0.01, 0.01]
         keyRequests = 0
         eventRequests = 0
+        eventBodies = []
     }
 
     override func tearDown() {
@@ -48,8 +50,10 @@ final class SessionBootstrapTests: XCTestCase {
                 self.lock.unlock()
                 return try key(number, request)
             }
+            let body = SegmentifyTestSupport.requestBody(of: request) ?? [:]
             self.lock.lock()
             self.eventRequests += 1
+            self.eventBodies.append(body)
             self.lock.unlock()
             let response = SegmentifyTestSupport.httpResponse(for: request)
             return (response, try SegmentifyTestSupport.jsonData(["responses": [[]]]))
@@ -60,9 +64,15 @@ final class SessionBootstrapTests: XCTestCase {
         (SegmentifyTestSupport.httpResponse(for: request), try SegmentifyTestSupport.jsonData(["user-1", "session-1"]))
     }
 
-    private func sendPageView(_ onCallback: @escaping () -> Void) {
+    private func bodies() -> [[String: Any]] {
+        lock.lock()
+        defer { lock.unlock() }
+        return eventBodies
+    }
+
+    private func sendPageView(category: String = "Home Page", _ onCallback: @escaping () -> Void) {
         let page = PageModel()
-        page.category = "Home Page"
+        page.category = category
         manager.sendPageView(segmentifyObject: page) { _ in onCallback() }
     }
 
@@ -119,18 +129,66 @@ final class SessionBootstrapTests: XCTestCase {
         XCTAssertEqual(counts().event, 1)
     }
 
-    func testEventsWaitingForASessionShareOneKeyRequest() {
+    func testEventsWaitingForASessionShareOneKeyRequestAndKeepTheirOwnPayload() {
         serve { [unowned self] _, request in try self.keysResponse(for: request) }
         let called = expectation(description: "callbacks")
         called.expectedFulfillmentCount = 2
         called.assertForOverFulfill = true
 
-        sendPageView { called.fulfill() }
-        sendPageView { called.fulfill() }
+        sendPageView(category: "Home Page") { called.fulfill() }
+        sendPageView(category: "Category Page") { called.fulfill() }
 
         wait(for: [called], timeout: 5)
         settle()
         XCTAssertEqual(counts().key, 1)
-        XCTAssertEqual(counts().event, 2)
+        XCTAssertEqual(bodies().map { $0["category"] as? String }, ["Home Page", "Category Page"])
+        XCTAssertEqual(bodies().map { $0["sessionId"] as? String }, ["session-1", "session-1"])
+        XCTAssertEqual(bodies().map { $0["userId"] as? String }, ["user-1", "user-1"])
+    }
+
+    func testEventWithoutCallbackIsKeptAndSentWhenASessionArrivesLater() {
+        serve { [unowned self] number, request in
+            if number <= 3 {
+                throw URLError(.notConnectedToInternet)
+            }
+            return try self.keysResponse(for: request)
+        }
+        let basket = BasketModel()
+        basket.step = "add"
+        basket.productId = "p1"
+        basket.quantity = 1
+
+        manager.sendAddOrRemoveBasket(segmentifyObject: basket)
+        settle()
+        XCTAssertEqual(counts().key, 3)
+        XCTAssertEqual(counts().event, 0)
+
+        let called = expectation(description: "callback")
+        sendPageView { called.fulfill() }
+        wait(for: [called], timeout: 5)
+        settle()
+
+        XCTAssertEqual(counts().key, 4)
+        XCTAssertEqual(bodies().map { $0["name"] as? String }, ["BASKET_OPERATIONS", "PAGE_VIEW"])
+        XCTAssertEqual(bodies().first?["productId"] as? String, "p1")
+        XCTAssertEqual(bodies().first?["sessionId"] as? String, "session-1")
+    }
+
+    func testRateLimitedKeyRequestIsRetried() {
+        serve { [unowned self] number, request in
+            if number == 1 {
+                return (SegmentifyTestSupport.httpResponse(for: request, statusCode: 429), Data())
+            }
+            return try self.keysResponse(for: request)
+        }
+        let called = expectation(description: "callback")
+        called.assertForOverFulfill = true
+
+        sendPageView { called.fulfill() }
+
+        wait(for: [called], timeout: 5)
+        settle()
+        XCTAssertEqual(counts().key, 2)
+        XCTAssertEqual(counts().event, 1)
     }
 }

@@ -88,9 +88,9 @@ enum SegmentifyTestSupport {
         try JSONSerialization.data(withJSONObject: object, options: [])
     }
 
-    /// The `name` field of the event in the request body. URLProtocol hands the
-    /// body over as a stream, so it is read from there when `httpBody` is nil.
-    static func eventName(of request: URLRequest) -> String? {
+    /// The JSON body of an event request. URLProtocol hands the body over as a
+    /// stream, so it is read from there when `httpBody` is nil.
+    static func requestBody(of request: URLRequest) -> [String: Any]? {
         var data = request.httpBody ?? Data()
         if let stream = request.httpBodyStream {
             stream.open()
@@ -104,8 +104,12 @@ enum SegmentifyTestSupport {
                 data.append(buffer, count: count)
             }
         }
-        let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        return body?["name"] as? String
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    /// The `name` field of the event in the request body.
+    static func eventName(of request: URLRequest) -> String? {
+        requestBody(of: request)?["name"] as? String
     }
 
     static func sessionKeyHandler() -> (URLRequest) throws -> (HTTPURLResponse, Data) {
