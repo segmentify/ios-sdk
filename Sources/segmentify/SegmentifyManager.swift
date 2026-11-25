@@ -263,7 +263,7 @@ public class SegmentifyManager : NSObject {
         SegmentifyConnectionManager.sharedInstance.request(requestModel: eventRequest, success: {(response: [String:AnyObject]) in
             
             guard let searches = response["search"] as? [[Dictionary<AnyHashable,Any>]] else {
-                print("error : \(response["statusCode"]! as Any)")
+                self.logResponseProblem("no search response, statusCode: \(String(describing: response["statusCode"]))")
                 callback(self.searchResponse)
                 return
             }
@@ -427,60 +427,60 @@ public class SegmentifyManager : NSObject {
     func sendEvent(snapshot: EventSnapshot? = nil, callback: @escaping (_ recommendation: [RecommendationModel]) -> Void) {
         dispatchEvent(snapshot: snapshot, success: {(response: [String:AnyObject]) in
             
-            guard let responses = response["responses"] as? [[Dictionary<AnyHashable,Any>]] else {
-                print("error : \(response["statusCode"]! as Any)")
-                return
-            }
             self.recommendations.removeAll()
-            
-            if(responses.isEmpty){
-                print("error : response is not valid or empty")
+
+            // Whatever the body looks like, the host app hears back exactly once.
+            guard let responses = response["responses"] as? [[Dictionary<AnyHashable,Any>]], !responses.isEmpty else {
+                self.logResponseProblem("no recommendation responses, statusCode: \(String(describing: response["statusCode"]))")
+                callback(self.recommendations)
                 return
             }
-            else{
+            do {
+                // An item that is not a well-formed product recommendation is
+                // skipped; it must not discard the items after it.
                 for (_, obj) in responses[0].enumerated() {
                     self.minusIndex = Int()
                     guard let params = obj["params"] as? Dictionary<AnyHashable, Any> else {
-                        return
+                        continue
                     }
                     self.params = params
                     
                     self.type = obj["type"] as? String
                     
                     guard self.type == "recommendProducts"  else {
-                        print("type is not valid")
-                        return
+                        self.logResponseProblem("skipping response item of type \(self.type ?? "nil")")
+                        continue
                     }
                     
                     guard let dynamicItems = self.params!["dynamicItems"] as? String else {
-                        print("params['dynamicItems'] is not valid")
-                        return
+                        self.logResponseProblem("params['dynamicItems'] or params['staticItems'] is not valid")
+                        continue
                     }
                     
                     guard let dynamicDic = SegmentifyTools.convertStringToDictionary(text: dynamicItems) else {
-                        print("cannot converted string to json")
-                        return
+                        self.logResponseProblem("cannot convert string to json")
+                        continue
                     }
                     
                     guard let recommendedProducts = self.params!["recommendedProducts"] as? Dictionary<AnyHashable, Any> else {
-                        print("params['recommendedProducts'] is not valid")
-                        return
+                        self.logResponseProblem("params['recommendedProducts'] is not valid")
+                        continue
                     }
                     self.recommendationArray = recommendedProducts
                     
                     guard let notificationTitle = self.params!["notificationTitle"] as? String else {
-                        print("params['notificationTitle'] is not valid")
-                        return
+                        self.logResponseProblem("params['notificationTitle'] is not valid")
+                        continue
                     }
                     
                     guard let staticItems = self.params!["staticItems"] as? String else {
-                        print("params['dynamicItems'] is not valid")
-                        return
+                        self.logResponseProblem("params['dynamicItems'] or params['staticItems'] is not valid")
+                        continue
                     }
                     
                     guard let staticItemsDic = SegmentifyTools.convertStringToDictionary(text: staticItems) else {
-                        print("cannot converted string to json")
-                        return
+                        self.logResponseProblem("cannot convert string to json")
+                        continue
                     }
 
                     var insId : String = String()
@@ -501,29 +501,28 @@ public class SegmentifyManager : NSObject {
                     for object in dynamicDic {
                         let dynObj = DynamicItemsModel()
                         var key = String()
-                        if let recoomendationSource = object["recommendationSource"] {
-                            self.recommendationSourceKeys.append(recoomendationSource as! String)
-                            dynObj.recommendationSource = recoomendationSource as? String
-                            key = "\(object["recommendationSource"]!)"
-                        }
-                        
-                        if let itemCount = object["itemCount"] {
-                            self.itemCounts.append(itemCount as! String)
-                            dynObj.itemCount = Int(itemCount as! String)
+                        if let recommendationSource = object["recommendationSource"] as? String {
+                            self.recommendationSourceKeys.append(recommendationSource)
+                            dynObj.recommendationSource = recommendationSource
+                            key = recommendationSource
                         }
 
-                        let timeFrameKey = object["timeFrame"]
-                        
-                        if timeFrameKey != nil {
-                            self.timeFrameKeys.append(timeFrameKey as! String)
-                            dynObj.timeFrame = timeFrameKey as? String
-                            key = key + "|\(object["timeFrame"]!)"
-                            let scoreKey = object["score"]
-                            //Score key
-                            if scoreKey != nil {
-                                self.scoreKeys.append(scoreKey as! String)
-                                dynObj.score = scoreKey as? String
-                                key = key + "|\(object["score"]!)"
+                        // The backend sends the count as a string; accept a number too.
+                        let itemCount = (object["itemCount"] as? String).flatMap { Int($0) }
+                            ?? (object["itemCount"] as? NSNumber)?.intValue
+                        if let itemCount = itemCount {
+                            self.itemCounts.append(String(itemCount))
+                            dynObj.itemCount = itemCount
+                        }
+
+                        if let timeFrame = object["timeFrame"] as? String {
+                            self.timeFrameKeys.append(timeFrame)
+                            dynObj.timeFrame = timeFrame
+                            key = key + "|\(timeFrame)"
+                            if let score = object["score"] as? String {
+                                self.scoreKeys.append(score)
+                                dynObj.score = score
+                                key = key + "|\(score)"
                             }
                         }
                         //let key = "\(object["recommendationSource"]!)|\(object["timeFrame"]!)"
@@ -551,6 +550,12 @@ public class SegmentifyManager : NSObject {
         })
     }
     
+    private func logResponseProblem(_ message: String) {
+        if SegmentifyManager.logStatus {
+            print("Segmentify: \(message)")
+        }
+    }
+
     private func clearData() {
         self.params?.removeAll()
         self.paramsArr?.removeAll()
@@ -581,7 +586,7 @@ public class SegmentifyManager : NSObject {
             for dynObj in dynamicItemsArray {
                 if let products = recommendedProducts[self.currentKey!] as? [[AnyHashable:Any]] {
                     if products.count > 0 {
-                        self.createRecomendation(title: notificationTitle, itemCount: dynObj.itemCount!, products: products,interactionId: interactionId,impressionId: impressionId)
+                        self.createRecomendation(title: notificationTitle, itemCount: dynObj.itemCount ?? products.count, products: products,interactionId: interactionId,impressionId: impressionId)
                         self.staticItemsArrayCount = (self.currentRecModel.products?.count)!
                     }
                 }
@@ -602,12 +607,12 @@ public class SegmentifyManager : NSObject {
                 if let products = recommendedProducts[dynObj.key!] as? [[AnyHashable:Any]] {
                     if products.count > 0 {
                         
-                        self.createRecomendation(title: notificationTitle, itemCount: dynObj.itemCount!, products: products,interactionId: interactionId,impressionId: impressionId)
+                        self.createRecomendation(title: notificationTitle, itemCount: dynObj.itemCount ?? products.count, products: products,interactionId: interactionId,impressionId: impressionId)
                         var counter = 0
                         for product in currentRecModel.products!{
                             if newProdArray.contains(where: {$0.productId==product.productId}){ }
                             else {
-                                if counter < dynObj.itemCount! {
+                                if counter < dynObj.itemCount ?? products.count {
                                     if( dynObj.recommendationSource == "RECOMMENDATION_SOURCE_LAST_VISITED" ||
                                         !checkIfItemRecommendedBefore(item: product)) {
                                         newProdArray.append(product)
