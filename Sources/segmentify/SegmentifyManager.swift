@@ -747,28 +747,23 @@ public class SegmentifyManager : NSObject {
         let campaign = SearchCampaignModel()
         
         if let searchAssetTexts = campaignParam["stringSearchAssetTextMap"] {
-            guard let assetTexts = searchAssetTexts as? [String:AnyObject] else {
-                print(searchAssetTexts.self)
-                return
-            }
             var textMap = [String:SearchAssetTextModel]()
-            for (key, val) in assetTexts {
+            for (key, val) in (searchAssetTexts as? [String:AnyObject]) ?? [:] {
                 guard let assets = val as? Dictionary<AnyHashable,Any> else {
-                    print(val.self)
-                    return
+                    continue
                 }
                 let assetTexts = SearchAssetTextModel()
                 
-                if let popularProductsText = assets["popularProductsText"] {
-                    assetTexts.popularProductsText = popularProductsText as! String
+                if let popularProductsText = assets["popularProductsText"] as? String {
+                    assetTexts.popularProductsText = popularProductsText
                 }
-                if let mobileCancelText = assets["mobileCancelText"] {
-                    assetTexts.mobileCancelText = mobileCancelText as! String
+                if let mobileCancelText = assets["mobileCancelText"] as? String {
+                    assetTexts.mobileCancelText = mobileCancelText
                 }
-                if let notFoundText = assets["notFoundText"] {
-                    assetTexts.notFoundText = notFoundText as! String
+                if let notFoundText = assets["notFoundText"] as? String {
+                    assetTexts.notFoundText = notFoundText
                 }
-                textMap[key as String] = assetTexts as SearchAssetTextModel;
+                textMap[key] = assetTexts
             }
             campaign.stringSearchAssetTextMap = textMap
             
@@ -801,143 +796,139 @@ public class SegmentifyManager : NSObject {
     }
     
     private func createSearchProducts(products:[[AnyHashable:Any]]) {
-        self.searcResponseProductsArray.removeAll()
-        for (_, obj) in products.enumerated() {
-            let proObj = ProductRecommendationModel()
-            
-            if let noUpdate = obj["noUpdate"] {
-                proObj.noUpdate = noUpdate as? Bool
-            }
-            if let currency = obj["currency"] {
-                proObj.currency = currency as? String
-            }
-            if let language = obj["language"] {
-                proObj.language = language as? String
-            }
-            if let oldPriceText = obj["oldPriceText"] {
-                proObj.oldPriceText = oldPriceText as? String
-            }
-            if let priceText = obj["priceText"] {
-                proObj.priceText = priceText as? String
-            }
-            if let labels = obj["labels"] {
-                proObj.labels = labels as? [String]
-            }
-            if let sizes = obj["sizes"] {
-                proObj.sizes = sizes as? [String]
-            }
-            if let colors = obj["colors"] {
-                proObj.colors = colors as? [String]
-            }
-            if let gender = obj["gender"] {
-                proObj.gender = gender as? String
-            }
-            if let categories = obj["categories"] {
-                proObj.categories = categories as? [String]
-            }
-            if let category = obj["category"] {
-                proObj.category = category as? [String]
-            }
-            if let imageXL = obj["imageXL"] {
-                proObj.imageXL = imageXL as? String
-            }
-            if let imageL = obj["imageL"] {
-                proObj.imageL = imageL as? String
-            }
-            if let imageM = obj["imageM"] {
-                proObj.imageM = imageM as? String
-            }
-            if let imageS = obj["imageS"] {
-                proObj.imageS = imageS as? String
-            }
-            if let imageXS = obj["imageXS"] {
-                proObj.imageXS = imageXS as? String
-            }
-            if let mUrl = obj["mUrl"] {
-                proObj.mUrl = mUrl as? String
-            }
-            if let url = obj["url"] {
-                proObj.url = url as? String
-            }
-            if let brand = obj["brand"] {
-                proObj.brand = brand as? String
-            }
-            if let name = obj["name"] {
-                proObj.name = name as? String
-            }
-            if let productId = obj["productId"] {
-                proObj.productId = productId as? String
-            }
-            if let image = obj["image"] {
-                proObj.image = image as? String
-            }
-            if let inStock = obj["inStock"] {
-                proObj.inStock = inStock as? Bool
-            }
-            if let price = obj["price"] {
-                proObj.price = price as? NSNumber
-            }
-            if let oldPrice = obj["oldPrice"] {
-                proObj.oldPrice = oldPrice as? NSNumber
-            }
-            if let params = obj["params"]{
-                proObj.params = params as? [String:AnyObject]
-            }
-            self.searcResponseProductsArray.append(proObj)
-        }
+        self.searcResponseProductsArray = products.map { self.makeSearchProduct(from: $0) }
         self.searchResponse.products = self.searcResponseProductsArray
     }
-    
+
+    private func makeSearchProduct(from obj: [AnyHashable:Any]) -> ProductRecommendationModel {
+        let proObj = ProductRecommendationModel()
+        
+        if let noUpdate = obj["noUpdate"] {
+            proObj.noUpdate = noUpdate as? Bool
+        }
+        if let currency = obj["currency"] {
+            proObj.currency = currency as? String
+        }
+        if let language = obj["language"] {
+            proObj.language = language as? String
+        }
+        if let oldPriceText = obj["oldPriceText"] {
+            proObj.oldPriceText = oldPriceText as? String
+        }
+        if let priceText = obj["priceText"] {
+            proObj.priceText = priceText as? String
+        }
+        if let labels = obj["labels"] {
+            proObj.labels = labels as? [String]
+        }
+        if let sizes = obj["sizes"] {
+            proObj.sizes = sizes as? [String]
+        }
+        if let colors = obj["colors"] {
+            proObj.colors = colors as? [String]
+        }
+        if let gender = obj["gender"] {
+            proObj.gender = gender as? String
+        }
+        if let categories = obj["categories"] {
+            proObj.categories = categories as? [String]
+        }
+        if let category = obj["category"] {
+            proObj.category = category as? [String]
+        }
+        if let imageXL = obj["imageXL"] {
+            proObj.imageXL = imageXL as? String
+        }
+        if let imageL = obj["imageL"] {
+            proObj.imageL = imageL as? String
+        }
+        if let imageM = obj["imageM"] {
+            proObj.imageM = imageM as? String
+        }
+        if let imageS = obj["imageS"] {
+            proObj.imageS = imageS as? String
+        }
+        if let imageXS = obj["imageXS"] {
+            proObj.imageXS = imageXS as? String
+        }
+        if let mUrl = obj["mUrl"] {
+            proObj.mUrl = mUrl as? String
+        }
+        if let url = obj["url"] {
+            proObj.url = url as? String
+        }
+        if let brand = obj["brand"] {
+            proObj.brand = brand as? String
+        }
+        if let name = obj["name"] {
+            proObj.name = name as? String
+        }
+        if let productId = obj["productId"] {
+            proObj.productId = productId as? String
+        }
+        if let image = obj["image"] {
+            proObj.image = image as? String
+        }
+        if let inStock = obj["inStock"] {
+            proObj.inStock = inStock as? Bool
+        }
+        if let price = obj["price"] {
+            proObj.price = price as? NSNumber
+        }
+        if let oldPrice = obj["oldPrice"] {
+            proObj.oldPrice = oldPrice as? NSNumber
+        }
+        if let params = obj["params"]{
+            proObj.params = params as? [String:AnyObject]
+        }
+        return proObj
+    }
+
+    /// Maps `{ "group name": [product, ...] }`. Entries whose value is not a list of
+    /// product objects are skipped.
+    private func makeProductGroups(from groups: Dictionary<AnyHashable, Any>) -> [String:[ProductRecommendationModel]] {
+        var result = [String:[ProductRecommendationModel]]()
+        for (key, val) in groups {
+            guard let name = key as? String, let products = val as? [[AnyHashable:Any]] else {
+                continue
+            }
+            result[name] = products.map { self.makeSearchProduct(from: $0) }
+        }
+        return result
+    }
+
+    /// Maps `{ "name": "value" }`. Entries whose value is not a string are skipped.
+    private func makeStringMap(from values: Dictionary<AnyHashable, Any>) -> [String:String] {
+        var result = [String:String]()
+        for (key, val) in values {
+            guard let name = key as? String, let value = val as? String else {
+                continue
+            }
+            result[name] = value
+        }
+        return result
+    }
+
     private func createCategoryProducts(categoryProducts: Dictionary<AnyHashable, Any>){
-        self.searchResponse.categoryProducts.removeAll()
-        var _categoryProducts = [String:[ProductRecommendationModel]]()
-        
-        for(key, val) in categoryProducts {
-            _categoryProducts.updateValue(val as! [ProductRecommendationModel], forKey: key as! String)
-        }
-        self.searchResponse.categoryProducts = _categoryProducts
+        self.searchResponse.categoryProducts = makeProductGroups(from: categoryProducts)
     }
-    
+
     private func createBrandProducts(brandProducts: Dictionary<AnyHashable, Any>){
-        self.searchResponse.brandProducts.removeAll()
-        var _brandProducts = [String:[ProductRecommendationModel]]()
-        
-        for(key, val) in brandProducts {
-            _brandProducts.updateValue(val as! [ProductRecommendationModel], forKey: key as! String)
-        }
-        self.searchResponse.brandProducts = _brandProducts
+        self.searchResponse.brandProducts = makeProductGroups(from: brandProducts)
     }
-    
+
     private func createKeywordProducts(keywordProducts: Dictionary<AnyHashable, Any>){
-        self.searchResponse.keywords.removeAll()
-        var _keywordProducts = [String:[ProductRecommendationModel]]()
-        
-        for(key, val) in keywordProducts {
-            _keywordProducts.updateValue(val as! [ProductRecommendationModel], forKey: key as! String)
-        }
-        self.searchResponse.keywords = _keywordProducts
+        self.searchResponse.keywords = makeProductGroups(from: keywordProducts)
     }
-    
+
     private func createSearchCategories(categories: Dictionary<AnyHashable, Any>){
-        self.searchResponse.categories.removeAll()
-        var _categories = [String:String]()
-        
-        for(key, val) in categories {
-            _categories.updateValue(val as! String, forKey: key as! String)
-        }
-        self.searchResponse.categories = _categories
+        self.searchResponse.categories = makeStringMap(from: categories)
     }
-    
+
     private func createSearchBrands(brands: Dictionary<AnyHashable, Any>){
-        self.searchResponse.brands.removeAll()
-        var _brands = [String:String]()
-        
-        for(key, val) in brands {
-            _brands.updateValue(val as! String, forKey: key as! String)
-        }
-        self.searchResponse.brands = _brands
+        self.searchResponse.brands = makeStringMap(from: brands)
     }
-    
+
     private func createLastSearches(lastSearches: [String]){
         self.searchResponse.lastSearches.removeAll()
         var _lastSearches = [String]()
