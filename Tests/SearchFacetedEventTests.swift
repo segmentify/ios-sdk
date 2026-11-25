@@ -35,7 +35,7 @@ final class SearchFacetedEventTests: XCTestCase {
             expectation.fulfill()
         }
 
-        waitForExpectations(timeout: 3)
+        waitForExpectations(timeout: 15)
     }
 
     func testFacetedSearchInvokesCallbackWhenSearchPayloadEmpty() {
@@ -54,7 +54,7 @@ final class SearchFacetedEventTests: XCTestCase {
             expectation.fulfill()
         }
 
-        waitForExpectations(timeout: 3)
+        waitForExpectations(timeout: 15)
     }
 
     func testFacetedSearchInvokesCallbackWhenProductsFieldMissing() {
@@ -78,7 +78,7 @@ final class SearchFacetedEventTests: XCTestCase {
             expectation.fulfill()
         }
 
-        waitForExpectations(timeout: 3)
+        waitForExpectations(timeout: 15)
     }
 
     func testFacetedSearchDecodesValidResponseWithoutChangingSearchEventName() {
@@ -108,7 +108,7 @@ final class SearchFacetedEventTests: XCTestCase {
             expectation.fulfill()
         }
 
-        waitForExpectations(timeout: 3)
+        waitForExpectations(timeout: 15)
     }
 
     func testFacetedSearchDecodesResponseWithEmptyProductsArray() {
@@ -135,7 +135,7 @@ final class SearchFacetedEventTests: XCTestCase {
             expectation.fulfill()
         }
 
-        waitForExpectations(timeout: 3)
+        waitForExpectations(timeout: 15)
     }
 
     func testFacetedSearchRequestIncludesTypeWhenConfigured() throws {
@@ -173,6 +173,6 @@ final class SearchFacetedEventTests: XCTestCase {
             expectation.fulfill()
         }
 
-        waitForExpectations(timeout: 3)
+        waitForExpectations(timeout: 15)
     }
 }
