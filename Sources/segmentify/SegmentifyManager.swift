@@ -98,11 +98,20 @@ public class SegmentifyManager : NSObject {
     private var currentRecModel = RecommendationModel()
     private var products : [ProductRecommendationModel] = []
     private static var segmentifySharedInstance: SegmentifyManager?
+    private var sessionWaiters: [SessionWaiter] = []
+    private var isRequestingSession = false
+    private let sessionLock = NSLock()
+    private typealias WaitingEvent = (snapshot: EventSnapshot, callback: ((_ recommendation: [RecommendationModel]) -> Void)?)
+    private var waitingEvents: [WaitingEvent] = []
+    static let maxWaitingEvents = 50
     private var eventRequest = SegmentifyRegisterRequest()
     private static let setup = ConfigModel()
     // log status variable. Default: true
     static var logStatus: Bool = true
     static var _sessionKeepSecond: Int = 86400
+    /// Waits between attempts to fetch the user id and session id.
+    static let defaultSessionRetryDelays: [TimeInterval] = [1, 3]
+    static var sessionRetryDelays: [TimeInterval] = defaultSessionRetryDelays
     // set log status
     public class func logStatus(isVisible: Bool) -> Bool{
         logStatus = isVisible
@@ -231,10 +240,7 @@ public class SegmentifyManager : NSObject {
         }
         
         if self.eventRequest.sessionID == nil {
-            self.getUserIdAndSessionIdRequest( success: { () -> Void in
-                self.sendEvent(callback: { (response: [RecommendationModel]) in
-                })
-            })
+            self.sendWhenSessionIsReady(EventSnapshot(of: eventRequest), callback: nil)
         } else {
             self.sendEvent(callback: { (response: [RecommendationModel]) in
             })
@@ -243,11 +249,7 @@ public class SegmentifyManager : NSObject {
     
     func setIDAndSendEventWithCallback(callback: @escaping (_ recommendation: [RecommendationModel]) -> Void) {
         if self.eventRequest.sessionID == nil {
-            self.getUserIdAndSessionIdRequest( success: { () -> Void in
-                self.sendEvent(callback: { (response: [RecommendationModel]) in
-                    callback(response)
-                })
-            })
+            self.sendWhenSessionIsReady(EventSnapshot(of: eventRequest), callback: callback)
         } else {
             self.sendEvent(callback: { (response: [RecommendationModel]) in
                 callback(response)
@@ -409,8 +411,21 @@ public class SegmentifyManager : NSObject {
         })
     }
     
-    func sendEvent(callback: @escaping (_ recommendation: [RecommendationModel]) -> Void) {
-        SegmentifyConnectionManager.sharedInstance.request(requestModel: eventRequest, success: {(response: [String:AnyObject]) in
+    /// Sends `snapshot` when given, otherwise the shared request as it is right now.
+    private func dispatchEvent(
+        snapshot: EventSnapshot?,
+        success: @escaping (_ response: [String:AnyObject]) -> Void,
+        failure: @escaping (_ error: Error) -> Void
+    ) {
+        if let snapshot = snapshot {
+            SegmentifyConnectionManager.sharedInstance.request(requestModel: snapshot, success: success, failure: failure)
+        } else {
+            SegmentifyConnectionManager.sharedInstance.request(requestModel: eventRequest, success: success, failure: failure)
+        }
+    }
+
+    func sendEvent(snapshot: EventSnapshot? = nil, callback: @escaping (_ recommendation: [RecommendationModel]) -> Void) {
+        dispatchEvent(snapshot: snapshot, success: {(response: [String:AnyObject]) in
             
             guard let responses = response["responses"] as? [[Dictionary<AnyHashable,Any>]] else {
                 print("error : \(response["statusCode"]! as Any)")
@@ -1678,6 +1693,8 @@ public class SegmentifyManager : NSObject {
                 self.sendSearchEvent(callback: { (response: SearchModel) in
                     callback(response)
                 })
+            }, failure: {
+                callback(SearchModel())
             })
         } else {
             self.sendSearchEvent(callback: { (response: SearchModel) in
@@ -1735,6 +1752,8 @@ public class SegmentifyManager : NSObject {
                 self.sendSearchFacetedEvent(callback: { (response: FacetedResponseModel) in
                     callback(response)
                 })
+            }, failure: {
+                callback(self.makeEmptyFacetedResponse())
             })
         } else {
             self.sendSearchFacetedEvent(callback: { (response: FacetedResponseModel) in
@@ -2500,76 +2519,193 @@ public class SegmentifyManager : NSObject {
         UserDefaults.standard.set(addedInterval,forKey: "SEGMENTIFY_SESSION_ID_TIMESTAMP")
     }
     
-    //private func
-    private func getUserIdAndSessionIdRequest(success : @escaping () -> Void) {
-        
-        var requestURL : URL!
-        let dataCenterUrl:String = SegmentifyManager.setup.dataCenterUrl!
-        if UserDefaults.standard.object(forKey: "SEGMENTIFY_USER_ID") != nil {
-            requestURL = URL(string: dataCenterUrl + "/get/key?count=1")!
-        } else {
-            requestURL = URL(string: dataCenterUrl + "/get/key?count=2")!
+    // MARK: Session bootstrap
+
+    private typealias SessionWaiter = (success: () -> Void, failure: (() -> Void)?)
+
+    /// Fetches the user id and session id. Callers that arrive while a request
+    /// is running wait for it instead of starting their own. Transport errors
+    /// and 5xx answers are retried after `sessionRetryDelays`; every caller
+    /// then hears back exactly once, on the main queue.
+    private func getUserIdAndSessionIdRequest(success : @escaping () -> Void, failure: (() -> Void)? = nil) {
+        sessionLock.lock()
+        sessionWaiters.append((success: success, failure: failure))
+        let alreadyRequesting = isRequestingSession
+        isRequestingSession = true
+        sessionLock.unlock()
+
+        if !alreadyRequesting {
+            performSessionRequest(attempt: 1)
         }
-        let urlRequest: NSMutableURLRequest = NSMutableURLRequest(url: requestURL)
-        let task = SegmentifyConnectionManager.urlSession.dataTask(with: urlRequest as URLRequest) {
+    }
+
+    private func performSessionRequest(attempt: Int) {
+        let keyCount = UserDefaults.standard.object(forKey: "SEGMENTIFY_USER_ID") != nil ? 1 : 2
+        guard let dataCenterUrl = SegmentifyManager.setup.dataCenterUrl,
+              let requestURL = URL(string: dataCenterUrl + "/get/key?count=\(keyCount)") else {
+            finishSessionRequest(succeeded: false)
+            return
+        }
+
+        let task = SegmentifyConnectionManager.urlSession.dataTask(with: URLRequest(url: requestURL)) {
             (data, response, error) -> Void in
-            
-            if response == nil {
-                self.getUserIdAndSessionIdRequest( success: { () -> Void in
-                    self.sendEvent(callback: { (response: [RecommendationModel]) in
-                        //callback(response)
-                    })
-                })
-            } else {
-                let httpResponse = response as! HTTPURLResponse
-                let statusCode = httpResponse.statusCode
-                
-                if (statusCode == 200) {
-                    do{
-                        if let jsonArray = try JSONSerialization.jsonObject(with: data!, options: []) as? NSArray {
-                            
-                            if jsonArray.count > 1 {
-                                self.eventRequest.userID = jsonArray[0] as? String
-                                self.eventRequest.sessionID = jsonArray[1] as? String
-                                self.initSessionId(sessionId: jsonArray[1] as? String)
-                                UserDefaults.standard.set(self.eventRequest.userID, forKey: "SEGMENTIFY_USER_ID")
-                            } else {
-                                
-                                let nw  =  NSDate().timeIntervalSince1970
-                                let nowInterval = round(NSDate().timeIntervalSince1970)
-                                _ = Date(timeIntervalSince1970: nw)
-                                
-                                if UserDefaults.standard.object(forKey: "SEGMENTIFY_SESSION_ID_TIMESTAMP") != nil{
-                                    let lastStamp = nowInterval + round(Double(SegmentifyManager._sessionKeepSecond))
-                                    UserDefaults.standard.set(lastStamp,forKey: "SEGMENTIFY_SESSION_ID_TIMESTAMP")
-                                } else{
-                                    self.initSessionId(sessionId: jsonArray[1] as? String)
-                                }
 
-                                let getLastStamp = UserDefaults.standard.object(forKey: "SEGMENTIFY_SESSION_ID_TIMESTAMP")
-                                let getLastStampToDouble = getLastStamp  as! Double
-                                if (nowInterval <= getLastStampToDouble) {
-                                    print(nowInterval)
-                                    print(getLastStampToDouble)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                self.retrySessionRequestOrFail(after: attempt)
+                return
+            }
+            guard httpResponse.statusCode == 200 else {
+                if httpResponse.statusCode >= 500 || httpResponse.statusCode == 429 || httpResponse.statusCode == 408 {
+                    self.retrySessionRequestOrFail(after: attempt)
+                } else {
+                    self.finishSessionRequest(succeeded: false)
+                }
+                return
+            }
+            guard let data = data,
+                  let jsonArray = (try? JSONSerialization.jsonObject(with: data, options: [])) as? NSArray,
+                  jsonArray.count > 0 else {
+                self.finishSessionRequest(succeeded: false)
+                return
+            }
 
-                                    let sessionId = UserDefaults.standard.object(forKey: "SEGMENTIFY_SESSION_ID") as? String
-                                    self.eventRequest.sessionID = sessionId
-                                } else {
-                                    let lastStamp = nowInterval + round(Double(SegmentifyManager._sessionKeepSecond))
-                                    UserDefaults.standard.set(lastStamp, forKey: "SEGMENTIFY_SESSION_ID_TIMESTAMP")
-                                    UserDefaults.standard.set(jsonArray[0] as? String, forKey: "SEGMENTIFY_SESSION_ID")
-                                    self.eventRequest.sessionID = jsonArray[0] as? String
-                                }
-                            }
-                        }
-                        success()
-                    }catch {
-                        print("Error with Json: \(error)")
-                    }
+            self.storeSessionKeys(jsonArray)
+            self.finishSessionRequest(succeeded: true)
+        }
+        task.resume()
+    }
+
+    private func retrySessionRequestOrFail(after attempt: Int) {
+        let delays = SegmentifyManager.sessionRetryDelays
+        guard attempt <= delays.count else {
+            finishSessionRequest(succeeded: false)
+            return
+        }
+        // Default QoS: utility work can be held back for seconds on a busy device.
+        DispatchQueue.global().asyncAfter(deadline: .now() + delays[attempt - 1]) {
+            self.performSessionRequest(attempt: attempt + 1)
+        }
+    }
+
+    private func finishSessionRequest(succeeded: Bool) {
+        sessionLock.lock()
+        let waiters = sessionWaiters
+        sessionWaiters.removeAll()
+        isRequestingSession = false
+        sessionLock.unlock()
+
+        DispatchQueue.main.async {
+            if succeeded {
+                self.sendWaitingEvents()
+            }
+            for waiter in waiters {
+                if succeeded {
+                    waiter.success()
+                } else {
+                    waiter.failure?()
                 }
             }
         }
-        task.resume()
+    }
+
+    // MARK: Events waiting for a session
+
+    /// Keeps the event until a session exists. Every successful session request
+    /// sends all waiting events, oldest first.
+    private func sendWhenSessionIsReady(_ snapshot: EventSnapshot, callback: ((_ recommendation: [RecommendationModel]) -> Void)?) {
+        sessionLock.lock()
+        waitingEvents.append((snapshot: snapshot, callback: callback))
+        var dropped: WaitingEvent?
+        if waitingEvents.count > SegmentifyManager.maxWaitingEvents {
+            dropped = waitingEvents.removeFirst()
+        }
+        sessionLock.unlock()
+
+        if let dropped = dropped {
+            logWaitingEvent("dropped, too many events are waiting for a session", dropped.snapshot)
+            if let droppedCallback = dropped.callback {
+                DispatchQueue.main.async { droppedCallback([]) }
+            }
+        }
+
+        getUserIdAndSessionIdRequest(success: {}, failure: { self.sessionFailedForWaitingEvents() })
+    }
+
+    private func sendWaitingEvents() {
+        sessionLock.lock()
+        let events = waitingEvents
+        waitingEvents.removeAll()
+        sessionLock.unlock()
+
+        for event in events {
+            event.snapshot.applySession(userId: eventRequest.userID, sessionId: eventRequest.sessionID)
+            let callback = event.callback
+            sendEvent(snapshot: event.snapshot, callback: { (response: [RecommendationModel]) in
+                callback?(response)
+            })
+        }
+    }
+
+    /// No session could be obtained. Events with a callback answer it with an
+    /// empty result and are given up; events without one have nobody to tell,
+    /// so they stay and go out with the next session (next event or foreground).
+    private func sessionFailedForWaitingEvents() {
+        sessionLock.lock()
+        let answered = waitingEvents.filter { $0.callback != nil }
+        waitingEvents = waitingEvents.filter { $0.callback == nil }
+        let kept = waitingEvents
+        sessionLock.unlock()
+
+        for event in answered {
+            event.callback?([])
+        }
+        for event in kept {
+            logWaitingEvent("kept until a session is available", event.snapshot)
+        }
+    }
+
+    private func logWaitingEvent(_ message: String, _ snapshot: EventSnapshot) {
+        if SegmentifyManager.logStatus {
+            print("Segmentify: event \(snapshot.eventName ?? "unknown") \(message)")
+        }
+    }
+
+    /// Stores the keys returned by `/get/key`. Logic unchanged; see SFY-28779.
+    private func storeSessionKeys(_ jsonArray: NSArray) {
+        if jsonArray.count > 1 {
+            self.eventRequest.userID = jsonArray[0] as? String
+            self.eventRequest.sessionID = jsonArray[1] as? String
+            self.initSessionId(sessionId: jsonArray[1] as? String)
+            UserDefaults.standard.set(self.eventRequest.userID, forKey: "SEGMENTIFY_USER_ID")
+        } else {
+
+            let nw  =  NSDate().timeIntervalSince1970
+            let nowInterval = round(NSDate().timeIntervalSince1970)
+            _ = Date(timeIntervalSince1970: nw)
+
+            if UserDefaults.standard.object(forKey: "SEGMENTIFY_SESSION_ID_TIMESTAMP") != nil{
+                let lastStamp = nowInterval + round(Double(SegmentifyManager._sessionKeepSecond))
+                UserDefaults.standard.set(lastStamp,forKey: "SEGMENTIFY_SESSION_ID_TIMESTAMP")
+            } else{
+                // A single key was requested, so the only element is the session id.
+                self.initSessionId(sessionId: jsonArray[0] as? String)
+            }
+
+            let getLastStamp = UserDefaults.standard.object(forKey: "SEGMENTIFY_SESSION_ID_TIMESTAMP")
+            let getLastStampToDouble = getLastStamp  as! Double
+            if (nowInterval <= getLastStampToDouble) {
+                print(nowInterval)
+                print(getLastStampToDouble)
+
+                let sessionId = UserDefaults.standard.object(forKey: "SEGMENTIFY_SESSION_ID") as? String
+                self.eventRequest.sessionID = sessionId
+            } else {
+                let lastStamp = nowInterval + round(Double(SegmentifyManager._sessionKeepSecond))
+                UserDefaults.standard.set(lastStamp, forKey: "SEGMENTIFY_SESSION_ID_TIMESTAMP")
+                UserDefaults.standard.set(jsonArray[0] as? String, forKey: "SEGMENTIFY_SESSION_ID")
+                self.eventRequest.sessionID = jsonArray[0] as? String
+            }
+        }
     }
 
     func testingPrepareNetworkSession(
@@ -2580,9 +2716,19 @@ public class SegmentifyManager : NSObject {
         eventRequest.sessionID = sessionId
     }
 
+    /// True when no key request is running and nobody waits for one.
+    var testingIsSessionRequestIdle: Bool {
+        sessionLock.lock()
+        defer { sessionLock.unlock() }
+        return !isRequestingSession && sessionWaiters.isEmpty
+    }
+
     func testingClearNetworkSession() {
         eventRequest.sessionID = nil
         eventRequest.userTraitsProperties = nil
+        sessionLock.lock()
+        waitingEvents.removeAll()
+        sessionLock.unlock()
     }
 
     func testingConfigureFacetedSearch(

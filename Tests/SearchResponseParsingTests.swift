@@ -5,8 +5,6 @@ import XCTest
 /// must be parsed, and unexpected value types must be skipped, never trapped on.
 final class SearchResponseParsingTests: XCTestCase {
     private var manager: SegmentifyManager!
-    private let lock = NSLock()
-    private var eventRequestCount = 0
 
     override func setUp() {
         super.setUp()
@@ -14,7 +12,6 @@ final class SearchResponseParsingTests: XCTestCase {
         SegmentifyTestSupport.configureSegmentify()
         manager = SegmentifyManager.sharedManager()
         manager.testingResetSearchResponses()
-        eventRequestCount = 0
     }
 
     override func tearDown() {
@@ -24,17 +21,13 @@ final class SearchResponseParsingTests: XCTestCase {
         super.tearDown()
     }
 
-    /// The first event request is the search itself; the impression and widget-view
-    /// events the SDK sends afterwards get an empty recommendation response.
+    /// Only the search request gets the search payload. The impression and
+    /// widget-view events the SDK sends afterwards (possibly while the next test
+    /// is already running) get an empty recommendation response.
     private func serveSearchResponse(_ searchObject: [String: Any]) {
-        MockURLProtocol.requestHandler = SegmentifyTestSupport.routeRequests { [unowned self] request in
-            self.lock.lock()
-            self.eventRequestCount += 1
-            let isSearchRequest = self.eventRequestCount == 1
-            self.lock.unlock()
-
+        MockURLProtocol.requestHandler = SegmentifyTestSupport.routeRequests { request in
             let response = SegmentifyTestSupport.httpResponse(for: request)
-            if isSearchRequest {
+            if SegmentifyTestSupport.eventName(of: request) == "SEARCH" {
                 return (response, try SegmentifyTestSupport.jsonData(["search": [[searchObject]]]))
             }
             return (response, try SegmentifyTestSupport.emptyEventResponse())
