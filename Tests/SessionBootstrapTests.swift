@@ -1,0 +1,136 @@
+import XCTest
+@testable import Segmentify
+
+/// SFY-28774: fetching the user id and session id must be bounded, must report
+/// its outcome exactly once and must never send an event more than once.
+final class SessionBootstrapTests: XCTestCase {
+    private var manager: SegmentifyManager!
+    private let lock = NSLock()
+    private var keyRequests = 0
+    private var eventRequests = 0
+
+    override func setUp() {
+        super.setUp()
+        URLProtocol.registerClass(MockURLProtocol.self)
+        SegmentifyTestSupport.clearSessionDefaults()
+        SegmentifyTestSupport.configureSegmentify()
+        manager = SegmentifyManager.sharedManager()
+        manager.testingClearNetworkSession()
+        SegmentifyManager.sessionRetryDelays = [0.01, 0.01]
+        keyRequests = 0
+        eventRequests = 0
+    }
+
+    override func tearDown() {
+        URLProtocol.unregisterClass(MockURLProtocol.self)
+        MockURLProtocol.requestHandler = nil
+        SegmentifyManager.sessionRetryDelays = SegmentifyManager.defaultSessionRetryDelays
+        SegmentifyTestSupport.resetTestNetworking()
+        SegmentifyTestSupport.clearSessionDefaults()
+        super.tearDown()
+    }
+
+    private func counts() -> (key: Int, event: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (keyRequests, eventRequests)
+    }
+
+    /// Routes requests by endpoint and counts them. `key` receives the 1-based
+    /// number of the key request it answers.
+    private func serve(key: @escaping (Int, URLRequest) throws -> (HTTPURLResponse, Data)) {
+        MockURLProtocol.requestHandler = { [unowned self] request in
+            let url = request.url?.absoluteString ?? ""
+            if url.contains("/get/key") {
+                self.lock.lock()
+                self.keyRequests += 1
+                let number = self.keyRequests
+                self.lock.unlock()
+                return try key(number, request)
+            }
+            self.lock.lock()
+            self.eventRequests += 1
+            self.lock.unlock()
+            let response = SegmentifyTestSupport.httpResponse(for: request)
+            return (response, try SegmentifyTestSupport.jsonData(["responses": [[]]]))
+        }
+    }
+
+    private func keysResponse(for request: URLRequest) throws -> (HTTPURLResponse, Data) {
+        (SegmentifyTestSupport.httpResponse(for: request), try SegmentifyTestSupport.jsonData(["user-1", "session-1"]))
+    }
+
+    private func sendPageView(_ onCallback: @escaping () -> Void) {
+        let page = PageModel()
+        page.category = "Home Page"
+        manager.sendPageView(segmentifyObject: page) { _ in onCallback() }
+    }
+
+    /// Lets late requests arrive so that "no more than N" assertions mean something.
+    private func settle(_ seconds: TimeInterval = 0.5) {
+        let settled = expectation(description: "settled")
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { settled.fulfill() }
+        wait(for: [settled], timeout: seconds + 5)
+    }
+
+    func testTransportErrorStopsAfterBoundedAttemptsAndCallsBackOnce() {
+        serve { _, _ in throw URLError(.notConnectedToInternet) }
+        let called = expectation(description: "callback")
+        called.assertForOverFulfill = true
+
+        sendPageView { called.fulfill() }
+
+        wait(for: [called], timeout: 5)
+        settle()
+        XCTAssertEqual(counts().key, 3, "one attempt plus two retries")
+        XCTAssertEqual(counts().event, 0, "no event may be sent without a session")
+    }
+
+    func testServerErrorStopsAfterBoundedAttemptsAndCallsBackOnce() {
+        serve { _, request in
+            (SegmentifyTestSupport.httpResponse(for: request, statusCode: 500), Data())
+        }
+        let called = expectation(description: "callback")
+        called.assertForOverFulfill = true
+
+        sendPageView { called.fulfill() }
+
+        wait(for: [called], timeout: 5)
+        settle()
+        XCTAssertEqual(counts().key, 3)
+        XCTAssertEqual(counts().event, 0)
+    }
+
+    func testErrorThenSuccessSendsTheEventExactlyOnce() {
+        serve { [unowned self] number, request in
+            if number == 1 {
+                throw URLError(.notConnectedToInternet)
+            }
+            return try self.keysResponse(for: request)
+        }
+        let called = expectation(description: "callback")
+        called.assertForOverFulfill = true
+
+        sendPageView { called.fulfill() }
+
+        wait(for: [called], timeout: 5)
+        settle()
+        XCTAssertEqual(counts().key, 2)
+        XCTAssertEqual(counts().event, 1)
+    }
+
+    func testEventsWaitingForASessionShareOneKeyRequest() {
+        serve { [unowned self] _, request in try self.keysResponse(for: request) }
+        let called = expectation(description: "callbacks")
+        called.expectedFulfillmentCount = 2
+        called.assertForOverFulfill = true
+
+        sendPageView { called.fulfill() }
+        sendPageView { called.fulfill() }
+
+        wait(for: [called], timeout: 5)
+        settle()
+        XCTAssertEqual(counts().key, 1)
+        XCTAssertEqual(counts().event, 2)
+    }
+}

@@ -103,6 +103,9 @@ public class SegmentifyManager : NSObject {
     // log status variable. Default: true
     static var logStatus: Bool = true
     static var _sessionKeepSecond: Int = 86400
+    /// Waits between attempts to fetch the user id and session id.
+    static let defaultSessionRetryDelays: [TimeInterval] = [1, 3]
+    static var sessionRetryDelays: [TimeInterval] = defaultSessionRetryDelays
     // set log status
     public class func logStatus(isVisible: Bool) -> Bool{
         logStatus = isVisible
