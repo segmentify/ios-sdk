@@ -544,9 +544,9 @@ public class SegmentifyManager : NSObject {
             if (self.debugMode) {
                 print("Request failed : \(error)")
             }
-            let errorRecModel = RecommendationModel()
-            errorRecModel.errorString = "error"
-            callback(self.recommendations)
+            // Never hand back what an earlier response left in the shared array.
+            self.recommendations.removeAll()
+            callback([])
         })
     }
     
@@ -2773,9 +2773,12 @@ extension SegmentifyManager: CdpSessionResolving, CdpRequestBuilding {
         }
 
         if eventRequest.sessionID == nil {
-            getUserIdAndSessionIdRequest {
+            getUserIdAndSessionIdRequest(success: {
                 completion(self.eventRequest.userID, self.eventRequest.sessionID)
-            }
+            }, failure: {
+                // No session could be obtained; the caller decides what that means.
+                completion(self.eventRequest.userID, nil)
+            })
         } else {
             completion(eventRequest.userID, eventRequest.sessionID)
         }

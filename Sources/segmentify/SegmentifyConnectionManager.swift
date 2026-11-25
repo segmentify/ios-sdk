@@ -62,95 +62,95 @@ class SegmentifyConnectionManager : NSObject, URLSessionDelegate  {
     }
     
     func request(urlString: String) {
-        let url = URL.init(string: urlString)
-        let request = URLRequest.init(url: url!)
-        if SegmentifyManager.logStatus == true {
-            debugPrint("Request to : \(url!)")
+        guard let url = URL(string: urlString) else {
+            log("Invalid URL : \(urlString)")
+            return
         }
+        let request = URLRequest(url: url)
+        log("Request to : \(url)")
         let dataTask = SegmentifyConnectionManager.urlSession.dataTask(with: request) {data, response, error in
             debugPrint("Server responded. Error  : \(String(describing: error))")
         }
         dataTask.resume()
     }
     
+    /// Sends `requestModel` to the event endpoint.
+    ///
+    /// Exactly one of `success` and `failure` is called, on the main queue:
+    /// `success` for a 2xx answer (with an empty dictionary when the body is not
+    /// a JSON object), `failure` for everything else.
     func request<R: SegmentifyRequestProtocol>(requestModel: R, success: @escaping (_ response: [String:AnyObject]) -> Void, failure: @escaping (_ error: Error) -> Void) {
-        
-        var url: URL?
-        url = URL.init(string: "\(requestModel.dataCenterUrl)\(SegmentifyConnectionManager.baseUrl)\(requestModel.apiKey)")
-        
-        if SegmentifyManager.logStatus == true {
-            print("URL : \(String(describing: url!))")
+
+        func fail(_ error: Error) {
+            log("Request failed : \(error)")
+            DispatchQueue.main.async { failure(error) }
         }
-        
-        var request = URLRequest.init(url: url!)
+
+        let urlString = "\(requestModel.dataCenterUrl)\(SegmentifyConnectionManager.baseUrl)\(requestModel.apiKey)"
+        guard let url = URL(string: urlString) else {
+            fail(SegmentifyNetworkError.invalidURL(urlString))
+            return
+        }
+
+        var request = URLRequest(url: url)
         request.httpMethod = requestModel.method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(requestModel.subdomain, forHTTPHeaderField: "Origin")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = TimeInterval(SegmentifyConnectionManager.timeoutInterval)
-        if SegmentifyManager.logStatus == true {
-            print("request header : \(String(describing: (request.allHTTPHeaderFields)!))")
-        }
-        
-        if (requestModel.method == "POST" || requestModel.method == "PUT") {
-            request.httpBody = try! JSONSerialization.data(withJSONObject: requestModel.toDictionary(), options: [])
-        }
-        
-        if (request.httpBody != nil) {
-            if SegmentifyManager.logStatus == true {
-                debugPrint("Request to \(url!) with body \(String.init(data: request.httpBody!, encoding: String.Encoding.utf8)!)")
-            }
-        }
-        
-        let dataTask = SegmentifyConnectionManager.urlSession.dataTask(with: request) {data, response, connectionError in
-            if SegmentifyManager.logStatus == true {
-                print("request : \(request)")
-            }
-            if connectionError == nil {
-                let remoteResponse = response as! HTTPURLResponse
-                
-                DispatchQueue.main.async {
-                    if (connectionError == nil && (remoteResponse.statusCode == 200 || remoteResponse.statusCode == 201)) {
-                        if (self.debugMode) {
-                            if SegmentifyManager.logStatus == true {
-                                print("Server response code : \(remoteResponse.statusCode)")
-                            }
-                        }
-                        
-                        do {
-                            let jsonObject = try JSONSerialization.jsonObject(with: data!, options: JSONSerialization.ReadingOptions.allowFragments) as? [String:AnyObject]
-                            if SegmentifyManager.logStatus == true {
-                                print("response : \(String(describing: jsonObject))")
-                            }
-                            
-                            success(jsonObject!)
-                            
-                        } catch {
-                            success(([String:AnyObject]() as AnyObject) as! [String : AnyObject])
-                        }
-                    }
-                    else {
-                        
-                        if (self.debugMode) {
-                            print("Server response with failure : \(remoteResponse.statusCode)")
-                        }
 
-                        do{
-                            print("Server response with failure : \(remoteResponse.statusCode)")
-                            return
-                        }
-                        
-                    }
-                }
-            } else {
-                print("Connection error \(String(describing: connectionError))")
-                DispatchQueue.main.async {
-                    failure(connectionError ?? URLError(.unknown))
-                }
+        if requestModel.method == "POST" || requestModel.method == "PUT" {
+            // JSONSerialization raises an Objective-C exception, which Swift cannot
+            // catch, for values it does not support; check before serializing.
+            let body = requestModel.toDictionary()
+            guard JSONSerialization.isValidJSONObject(body),
+                  let data = try? JSONSerialization.data(withJSONObject: body, options: []) else {
+                fail(SegmentifyNetworkError.unserializableBody)
+                return
+            }
+            request.httpBody = data
+            log("Request to \(url) with body \(String(data: data, encoding: .utf8) ?? "")")
+        } else {
+            log("Request to \(url)")
+        }
+
+        let dataTask = SegmentifyConnectionManager.urlSession.dataTask(with: request) { data, response, connectionError in
+            if let connectionError = connectionError {
+                fail(connectionError)
+                return
+            }
+            guard let remoteResponse = response as? HTTPURLResponse else {
+                fail(SegmentifyNetworkError.noResponse)
+                return
+            }
+            guard (200...299).contains(remoteResponse.statusCode) else {
+                fail(SegmentifyNetworkError.httpStatus(remoteResponse.statusCode))
+                return
+            }
+
+            let jsonObject = data.flatMap {
+                try? JSONSerialization.jsonObject(with: $0, options: .allowFragments)
+            } as? [String:AnyObject]
+            self.log("Server response code : \(remoteResponse.statusCode), response : \(String(describing: jsonObject))")
+
+            DispatchQueue.main.async {
+                success(jsonObject ?? [:])
             }
         }
         dataTask.resume()
     }
-    
-    
+
+    private func log(_ message: @autoclosure () -> String) {
+        if SegmentifyManager.logStatus {
+            print(message())
+        }
+    }
+}
+
+/// Why a request to the event endpoint did not produce a usable answer.
+enum SegmentifyNetworkError: Error, Equatable {
+    case invalidURL(String)
+    case unserializableBody
+    case noResponse
+    case httpStatus(Int)
 }

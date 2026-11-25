@@ -35,6 +35,29 @@ final class CdpEventServiceTests: XCTestCase {
         super.tearDown()
     }
 
+    /// SFY-28776: without a session the backend rejects the event, so it is not sent.
+    func testEventIsNotDispatchedWithoutASession() {
+        let noSession = StubSessionResolver(userId: "user-1", sessionId: nil)
+        let service = CdpEventService(
+            sessionResolver: noSession,
+            requestBuilder: requestBuilder,
+            profileStore: profileStore,
+            dispatcher: dispatcher.dispatch
+        )
+        dispatcher.mode = .success
+        let completion = expectation(description: "completion")
+
+        // The service holds its resolver weakly; keep it alive for the call.
+        withExtendedLifetime(noSession) {
+            service.send(name: CdpEventName.userLogin, properties: ["email": "user@example.com"]) {
+                completion.fulfill()
+            }
+            wait(for: [completion], timeout: 15)
+        }
+
+        XCTAssertEqual(dispatcher.dispatchCount, 0)
+    }
+
     func testSendSkipsWhenPropertiesEmpty() {
         let completion = expectation(description: "completion")
 

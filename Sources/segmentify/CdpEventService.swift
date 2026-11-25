@@ -108,6 +108,13 @@ final class CdpEventService {
 
         let dispatcher = self.dispatcher
         sessionResolver.resolveCdpSession { userId, sessionId in
+            // The backend rejects an event without a session id; report the
+            // failure instead of sending it.
+            guard let sessionId = sessionId, !sessionId.isEmpty else {
+                onResult(false)
+                return
+            }
+
             let request = requestBuilder.makeCdpRequest()
             request.eventName = name
             request.userTraitsProperties = properties
