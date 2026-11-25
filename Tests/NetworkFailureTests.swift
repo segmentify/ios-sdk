@@ -156,14 +156,14 @@ final class NetworkFailureTests: XCTestCase {
     // whose statusCode is not SUCCESS (gandalf ResponseHelper.getResponse).
 
     func testEventRefusedByTheBackendIsAFailureCarryingTheReason() throws {
-        servePageView(status: 200, body: try SegmentifyTestSupport.jsonData(["statusCode": "NO_SESSIONID", "timestamp": 1]))
+        servePageView(status: 200, body: try SegmentifyTestSupport.jsonData(["statusCode": "NO_SESSIONID", "timestamp": 1] as [String: Any]))
 
         XCTAssertEqual(outcome(of: StubRequest()), .failure)
         XCTAssertEqual(lastError as? SegmentifyNetworkError, .rejected(statusCode: "NO_SESSIONID"))
     }
 
     func testSuccessStatusCodeIsASuccess() throws {
-        servePageView(status: 200, body: try SegmentifyTestSupport.jsonData(["statusCode": "SUCCESS", "responses": [[]]]))
+        servePageView(status: 200, body: try SegmentifyTestSupport.jsonData(["statusCode": "SUCCESS", "responses": [[Any]]()] as [String: Any]))
 
         XCTAssertEqual(outcome(of: StubRequest()), .success)
     }
