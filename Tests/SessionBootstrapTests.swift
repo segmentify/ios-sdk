@@ -53,18 +53,26 @@ final class SessionBootstrapTests: XCTestCase {
                 self.lock.unlock()
                 return try key(number, request)
             }
+            // Count only events that carry the session issued in this test. Other
+            // test classes share the singleton and their late events (sent with
+            // the seeded "test-session") can still arrive here.
             let body = SegmentifyTestSupport.requestBody(of: request) ?? [:]
-            self.lock.lock()
-            self.eventRequests += 1
-            self.eventBodies.append(body)
-            self.lock.unlock()
+            if body["sessionId"] as? String == SessionBootstrapTests.issuedSessionId {
+                self.lock.lock()
+                self.eventRequests += 1
+                self.eventBodies.append(body)
+                self.lock.unlock()
+            }
             let response = SegmentifyTestSupport.httpResponse(for: request)
             return (response, try SegmentifyTestSupport.jsonData(["responses": [[]]]))
         }
     }
 
+    private static let issuedSessionId = "session-1"
+
     private func keysResponse(for request: URLRequest) throws -> (HTTPURLResponse, Data) {
-        (SegmentifyTestSupport.httpResponse(for: request), try SegmentifyTestSupport.jsonData(["user-1", "session-1"]))
+        let keys = ["user-1", SessionBootstrapTests.issuedSessionId]
+        return (SegmentifyTestSupport.httpResponse(for: request), try SegmentifyTestSupport.jsonData(keys))
     }
 
     private func bodies() -> [[String: Any]] {
