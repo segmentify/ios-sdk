@@ -88,6 +88,26 @@ enum SegmentifyTestSupport {
         try JSONSerialization.data(withJSONObject: object, options: [])
     }
 
+    /// The `name` field of the event in the request body. URLProtocol hands the
+    /// body over as a stream, so it is read from there when `httpBody` is nil.
+    static func eventName(of request: URLRequest) -> String? {
+        var data = request.httpBody ?? Data()
+        if let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count <= 0 {
+                    break
+                }
+                data.append(buffer, count: count)
+            }
+        }
+        let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        return body?["name"] as? String
+    }
+
     static func sessionKeyHandler() -> (URLRequest) throws -> (HTTPURLResponse, Data) {
         { request in
             let response = httpResponse(for: request)
