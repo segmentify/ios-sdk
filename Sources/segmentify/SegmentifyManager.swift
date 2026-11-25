@@ -101,6 +101,9 @@ public class SegmentifyManager : NSObject {
     private var sessionWaiters: [SessionWaiter] = []
     private var isRequestingSession = false
     private let sessionLock = NSLock()
+    private typealias WaitingEvent = (snapshot: EventSnapshot, callback: ((_ recommendation: [RecommendationModel]) -> Void)?)
+    private var waitingEvents: [WaitingEvent] = []
+    static let maxWaitingEvents = 50
     private var eventRequest = SegmentifyRegisterRequest()
     private static let setup = ConfigModel()
     // log status variable. Default: true
@@ -237,10 +240,7 @@ public class SegmentifyManager : NSObject {
         }
         
         if self.eventRequest.sessionID == nil {
-            self.getUserIdAndSessionIdRequest( success: { () -> Void in
-                self.sendEvent(callback: { (response: [RecommendationModel]) in
-                })
-            })
+            self.sendWhenSessionIsReady(EventSnapshot(of: eventRequest), callback: nil)
         } else {
             self.sendEvent(callback: { (response: [RecommendationModel]) in
             })
@@ -249,13 +249,7 @@ public class SegmentifyManager : NSObject {
     
     func setIDAndSendEventWithCallback(callback: @escaping (_ recommendation: [RecommendationModel]) -> Void) {
         if self.eventRequest.sessionID == nil {
-            self.getUserIdAndSessionIdRequest( success: { () -> Void in
-                self.sendEvent(callback: { (response: [RecommendationModel]) in
-                    callback(response)
-                })
-            }, failure: {
-                callback([])
-            })
+            self.sendWhenSessionIsReady(EventSnapshot(of: eventRequest), callback: callback)
         } else {
             self.sendEvent(callback: { (response: [RecommendationModel]) in
                 callback(response)
@@ -417,8 +411,21 @@ public class SegmentifyManager : NSObject {
         })
     }
     
-    func sendEvent(callback: @escaping (_ recommendation: [RecommendationModel]) -> Void) {
-        SegmentifyConnectionManager.sharedInstance.request(requestModel: eventRequest, success: {(response: [String:AnyObject]) in
+    /// Sends `snapshot` when given, otherwise the shared request as it is right now.
+    private func dispatchEvent(
+        snapshot: EventSnapshot?,
+        success: @escaping (_ response: [String:AnyObject]) -> Void,
+        failure: @escaping (_ error: Error) -> Void
+    ) {
+        if let snapshot = snapshot {
+            SegmentifyConnectionManager.sharedInstance.request(requestModel: snapshot, success: success, failure: failure)
+        } else {
+            SegmentifyConnectionManager.sharedInstance.request(requestModel: eventRequest, success: success, failure: failure)
+        }
+    }
+
+    func sendEvent(snapshot: EventSnapshot? = nil, callback: @escaping (_ recommendation: [RecommendationModel]) -> Void) {
+        dispatchEvent(snapshot: snapshot, success: {(response: [String:AnyObject]) in
             
             guard let responses = response["responses"] as? [[Dictionary<AnyHashable,Any>]] else {
                 print("error : \(response["statusCode"]! as Any)")
@@ -2548,7 +2555,7 @@ public class SegmentifyManager : NSObject {
                 return
             }
             guard httpResponse.statusCode == 200 else {
-                if httpResponse.statusCode >= 500 {
+                if httpResponse.statusCode >= 500 || httpResponse.statusCode == 429 || httpResponse.statusCode == 408 {
                     self.retrySessionRequestOrFail(after: attempt)
                 } else {
                     self.finishSessionRequest(succeeded: false)
@@ -2587,6 +2594,9 @@ public class SegmentifyManager : NSObject {
         sessionLock.unlock()
 
         DispatchQueue.main.async {
+            if succeeded {
+                self.sendWaitingEvents()
+            }
             for waiter in waiters {
                 if succeeded {
                     waiter.success()
@@ -2594,6 +2604,68 @@ public class SegmentifyManager : NSObject {
                     waiter.failure?()
                 }
             }
+        }
+    }
+
+    // MARK: Events waiting for a session
+
+    /// Keeps the event until a session exists. Every successful session request
+    /// sends all waiting events, oldest first.
+    private func sendWhenSessionIsReady(_ snapshot: EventSnapshot, callback: ((_ recommendation: [RecommendationModel]) -> Void)?) {
+        sessionLock.lock()
+        waitingEvents.append((snapshot: snapshot, callback: callback))
+        var dropped: WaitingEvent?
+        if waitingEvents.count > SegmentifyManager.maxWaitingEvents {
+            dropped = waitingEvents.removeFirst()
+        }
+        sessionLock.unlock()
+
+        if let dropped = dropped {
+            logWaitingEvent("dropped, too many events are waiting for a session", dropped.snapshot)
+            if let droppedCallback = dropped.callback {
+                DispatchQueue.main.async { droppedCallback([]) }
+            }
+        }
+
+        getUserIdAndSessionIdRequest(success: {}, failure: { self.sessionFailedForWaitingEvents() })
+    }
+
+    private func sendWaitingEvents() {
+        sessionLock.lock()
+        let events = waitingEvents
+        waitingEvents.removeAll()
+        sessionLock.unlock()
+
+        for event in events {
+            event.snapshot.applySession(userId: eventRequest.userID, sessionId: eventRequest.sessionID)
+            let callback = event.callback
+            sendEvent(snapshot: event.snapshot, callback: { (response: [RecommendationModel]) in
+                callback?(response)
+            })
+        }
+    }
+
+    /// No session could be obtained. Events with a callback answer it with an
+    /// empty result and are given up; events without one have nobody to tell,
+    /// so they stay and go out with the next session (next event or foreground).
+    private func sessionFailedForWaitingEvents() {
+        sessionLock.lock()
+        let answered = waitingEvents.filter { $0.callback != nil }
+        waitingEvents = waitingEvents.filter { $0.callback == nil }
+        let kept = waitingEvents
+        sessionLock.unlock()
+
+        for event in answered {
+            event.callback?([])
+        }
+        for event in kept {
+            logWaitingEvent("kept until a session is available", event.snapshot)
+        }
+    }
+
+    private func logWaitingEvent(_ message: String, _ snapshot: EventSnapshot) {
+        if SegmentifyManager.logStatus {
+            print("Segmentify: event \(snapshot.eventName ?? "unknown") \(message)")
         }
     }
 

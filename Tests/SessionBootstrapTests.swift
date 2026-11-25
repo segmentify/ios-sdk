@@ -141,7 +141,9 @@ final class SessionBootstrapTests: XCTestCase {
         wait(for: [called], timeout: 5)
         settle()
         XCTAssertEqual(counts().key, 1)
-        XCTAssertEqual(bodies().map { $0["category"] as? String }, ["Home Page", "Category Page"])
+        // Each event goes out on its own connection, so arrival order is not fixed.
+        XCTAssertEqual(Set(bodies().compactMap { $0["category"] as? String }), ["Home Page", "Category Page"])
+        XCTAssertEqual(counts().event, 2)
         XCTAssertEqual(bodies().map { $0["sessionId"] as? String }, ["session-1", "session-1"])
         XCTAssertEqual(bodies().map { $0["userId"] as? String }, ["user-1", "user-1"])
     }
@@ -169,9 +171,10 @@ final class SessionBootstrapTests: XCTestCase {
         settle()
 
         XCTAssertEqual(counts().key, 4)
-        XCTAssertEqual(bodies().map { $0["name"] as? String }, ["BASKET_OPERATIONS", "PAGE_VIEW"])
-        XCTAssertEqual(bodies().first?["productId"] as? String, "p1")
-        XCTAssertEqual(bodies().first?["sessionId"] as? String, "session-1")
+        XCTAssertEqual(bodies().compactMap { $0["name"] as? String }.sorted(), ["BASKET_OPERATIONS", "PAGE_VIEW"])
+        let basketBody = bodies().first { $0["name"] as? String == "BASKET_OPERATIONS" }
+        XCTAssertEqual(basketBody?["productId"] as? String, "p1")
+        XCTAssertEqual(basketBody?["sessionId"] as? String, "session-1")
     }
 
     func testRateLimitedKeyRequestIsRetried() {
