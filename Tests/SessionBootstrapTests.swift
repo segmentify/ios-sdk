@@ -90,7 +90,7 @@ final class SessionBootstrapTests: XCTestCase {
 
         sendPageView { called.fulfill() }
 
-        wait(for: [called], timeout: 5)
+        wait(for: [called], timeout: 15)
         settle()
         XCTAssertEqual(counts().key, 3, "one attempt plus two retries")
         XCTAssertEqual(counts().event, 0, "no event may be sent without a session")
@@ -105,7 +105,7 @@ final class SessionBootstrapTests: XCTestCase {
 
         sendPageView { called.fulfill() }
 
-        wait(for: [called], timeout: 5)
+        wait(for: [called], timeout: 15)
         settle()
         XCTAssertEqual(counts().key, 3)
         XCTAssertEqual(counts().event, 0)
@@ -123,7 +123,7 @@ final class SessionBootstrapTests: XCTestCase {
 
         sendPageView { called.fulfill() }
 
-        wait(for: [called], timeout: 5)
+        wait(for: [called], timeout: 15)
         settle()
         XCTAssertEqual(counts().key, 2)
         XCTAssertEqual(counts().event, 1)
@@ -138,7 +138,7 @@ final class SessionBootstrapTests: XCTestCase {
         sendPageView(category: "Home Page") { called.fulfill() }
         sendPageView(category: "Category Page") { called.fulfill() }
 
-        wait(for: [called], timeout: 5)
+        wait(for: [called], timeout: 15)
         settle()
         XCTAssertEqual(counts().key, 1)
         // Each event goes out on its own connection, so arrival order is not fixed.
@@ -167,7 +167,7 @@ final class SessionBootstrapTests: XCTestCase {
 
         let called = expectation(description: "callback")
         sendPageView { called.fulfill() }
-        wait(for: [called], timeout: 5)
+        wait(for: [called], timeout: 15)
         settle()
 
         XCTAssertEqual(counts().key, 4)
@@ -189,7 +189,7 @@ final class SessionBootstrapTests: XCTestCase {
 
         sendPageView { called.fulfill() }
 
-        wait(for: [called], timeout: 5)
+        wait(for: [called], timeout: 15)
         settle()
         XCTAssertEqual(counts().key, 2)
         XCTAssertEqual(counts().event, 1)

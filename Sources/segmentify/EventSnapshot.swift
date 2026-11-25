@@ -33,9 +33,10 @@ final class EventSnapshot: SegmentifyRequestProtocol {
         body["name"] as? String
     }
 
-    /// A user id captured with the event (set by the host app) is kept.
+    /// Fills in the ids known at send time, as the shared request would carry
+    /// them; a captured user id is only kept when none is known now.
     func applySession(userId: String?, sessionId: String?) {
-        if body["userId"] == nil, let userId = userId {
+        if let userId = userId {
             body["userId"] = userId
         }
         if let sessionId = sessionId {
