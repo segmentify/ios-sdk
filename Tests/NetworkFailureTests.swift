@@ -23,14 +23,6 @@ final class NetworkFailureTests: XCTestCase {
         super.tearDown()
     }
 
-    private func waitUntil(_ what: String, _ condition: @escaping () -> Bool) {
-        let deadline = Date().addingTimeInterval(15)
-        while !condition() && Date() < deadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
-        }
-        XCTAssertTrue(condition(), "timed out waiting for \(what)")
-    }
-
     /// Answers page views with the given status and body; everything else gets
     /// an empty recommendation response.
     private func servePageView(status: Int, body: Data) {
@@ -111,16 +103,20 @@ final class NetworkFailureTests: XCTestCase {
         case failure
     }
 
+    private var lastError: Error?
+
     private func outcome(of request: StubRequest) -> Outcome? {
         let finished = expectation(description: "request finished")
         finished.assertForOverFulfill = true
         var outcome: Outcome?
+        lastError = nil
 
         SegmentifyConnectionManager.sharedInstance.request(requestModel: request, success: { _ in
             outcome = .success
             finished.fulfill()
-        }, failure: { _ in
+        }, failure: { error in
             outcome = .failure
+            self.lastError = error
             finished.fulfill()
         })
 
@@ -146,6 +142,29 @@ final class NetworkFailureTests: XCTestCase {
         servePageView(status: 200, body: Data("{\"responses\":[[]]}".utf8))
 
         XCTAssertEqual(outcome(of: StubRequest()), .success)
+    }
+
+    // The backend answers every request with HTTP 200; a refusal is a body
+    // whose statusCode is not SUCCESS (gandalf ResponseHelper.getResponse).
+
+    func testEventRefusedByTheBackendIsAFailureCarryingTheReason() throws {
+        servePageView(status: 200, body: try SegmentifyTestSupport.jsonData(["statusCode": "NO_SESSIONID", "timestamp": 1] as [String: Any]))
+
+        XCTAssertEqual(outcome(of: StubRequest()), .failure)
+        XCTAssertEqual(lastError as? SegmentifyNetworkError, .rejected(statusCode: "NO_SESSIONID"))
+    }
+
+    func testSuccessStatusCodeIsASuccess() throws {
+        servePageView(status: 200, body: try SegmentifyTestSupport.jsonData(["statusCode": "SUCCESS", "responses": [[Any]]()] as [String: Any]))
+
+        XCTAssertEqual(outcome(of: StubRequest()), .success)
+    }
+
+    func testHttpErrorKeepsTheResponseBody() {
+        servePageView(status: 400, body: Data("bad request: missing apiKey".utf8))
+
+        XCTAssertEqual(outcome(of: StubRequest()), .failure)
+        XCTAssertEqual(lastError as? SegmentifyNetworkError, .httpStatus(400, body: "bad request: missing apiKey"))
     }
 
     // CDP events
