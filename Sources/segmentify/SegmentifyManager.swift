@@ -1040,6 +1040,7 @@ public class SegmentifyManager : NSObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        SegmentifyUserAgent.apply(to: &request)
         request.httpBody = encodedData
         
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
@@ -1090,6 +1091,7 @@ public class SegmentifyManager : NSObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        SegmentifyUserAgent.apply(to: &request)
         request.httpBody = encodedData
 
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
@@ -2607,7 +2609,9 @@ public class SegmentifyManager : NSObject {
             return
         }
 
-        let task = SegmentifyConnectionManager.urlSession.dataTask(with: URLRequest(url: requestURL)) {
+        var keyRequest = URLRequest(url: requestURL)
+        SegmentifyUserAgent.apply(to: &keyRequest)
+        let task = SegmentifyConnectionManager.urlSession.dataTask(with: keyRequest) {
             (data, response, error) -> Void in
 
             guard let httpResponse = response as? HTTPURLResponse else {
