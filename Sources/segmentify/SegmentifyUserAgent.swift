@@ -56,6 +56,11 @@ enum SegmentifyUserAgent {
         text(value).filter { $0 != " " && $0 != "/" }
     }
 
+    /// The operating system version, for example `17.4` or `17.4.1`.
+    static func operatingSystemVersion() -> String {
+        ""
+    }
+
     /// The hardware identifier, for example `iPhone14,2`.
     static func hardwareModel() -> String {
         var systemInfo = utsname()

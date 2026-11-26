@@ -48,6 +48,25 @@ final class UserAgentHeaderTests: XCTestCase {
         )
     }
 
+    /// gandalf needs a version after "iOS"; the Android and React Native SDKs
+    /// send "unknown" when it is missing, and so must this one.
+    func testMissingVersionsAreSentAsUnknown() {
+        XCTAssertEqual(
+            SegmentifyUserAgent.make(sdkVersion: "", osVersion: " ", model: nil, appId: nil, appVersion: nil),
+            "SegmentifySDK/unknown (ios; iOS unknown)"
+        )
+    }
+
+    /// Read without UIKit, so building the header off the main thread is safe.
+    func testOperatingSystemVersionComesFromProcessInfo() {
+        let version = ProcessInfo.processInfo.operatingSystemVersion
+        var expected = "\(version.majorVersion).\(version.minorVersion)"
+        if version.patchVersion > 0 {
+            expected += ".\(version.patchVersion)"
+        }
+        XCTAssertEqual(SegmentifyUserAgent.operatingSystemVersion(), expected)
+    }
+
     /// The backend splits on `;`, `(`, `)` and spaces, and a header must be ASCII.
     func testCharactersThatWouldBreakTheFormatAreRemoved() {
         let header = SegmentifyUserAgent.make(
