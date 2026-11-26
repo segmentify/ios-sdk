@@ -278,6 +278,60 @@ final class ErrorCallbackTests: XCTestCase {
         }
     }
 
+    // MARK: Queue overflow
+
+    /// More than `maxWaitingEvents` events waiting for a session: the oldest
+    /// is dropped and must be reported, not answered with an empty result.
+    func testEventDroppedFromAFullQueueCallsOnError() {
+        let release = DispatchSemaphore(value: 0)
+        let serveNormally = MockURLProtocol.requestHandler
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.absoluteString.contains("/get/key") == true {
+                _ = release.wait(timeout: .now() + 20)
+            }
+            return try serveNormally!(request)
+        }
+        defer { release.signal() }
+
+        let page = PageModel()
+        page.category = "Home Page"
+        var oldest = Outcome()
+        manager.sendPageView(segmentifyObject: page, callback: { _ in oldest.answers += 1 }, onError: { oldest.errors.append($0) })
+        for _ in 0..<SegmentifyManager.maxWaitingEvents {
+            manager.sendPageView(segmentifyObject: page, callback: { _ in }, onError: { _ in })
+        }
+
+        waitUntil("the dropped event to be reported") { oldest.total > 0 }
+        XCTAssertEqual(oldest.answers, 0)
+        XCTAssertEqual(oldest.errors.count, 1)
+        XCTAssertTrue(oldest.errors.first?.message.contains("too many events") ?? false, oldest.errors.first?.message ?? "")
+    }
+
+    // MARK: Messages
+
+    func testHttpErrorMessageCarriesTheResponseBody() {
+        let error = SegmentifyError.from(SegmentifyNetworkError.httpStatus(400, body: "bad request: missing apiKey"))
+
+        XCTAssertEqual(error.message, "The server answered with HTTP 400: bad request: missing apiKey")
+        XCTAssertEqual(error.httpStatus, 400)
+    }
+
+    func testHttpErrorMessageWithoutBody() {
+        XCTAssertEqual(SegmentifyError.from(SegmentifyNetworkError.httpStatus(500, body: nil)).message, "The server answered with HTTP 500")
+        XCTAssertEqual(SegmentifyError.from(SegmentifyNetworkError.httpStatus(500, body: " \n ")).message, "The server answered with HTTP 500")
+    }
+
+    /// An error page can be a whole HTML document; the log gets its start.
+    func testLongResponseBodyIsCutInTheMessage() {
+        let body = String(repeating: "x", count: 1_000)
+
+        let message = SegmentifyError.from(SegmentifyNetworkError.httpStatus(502, body: body)).message
+
+        XCTAssertTrue(message.hasPrefix("The server answered with HTTP 502: xxx"), message)
+        XCTAssertTrue(message.hasSuffix("…"), message)
+        XCTAssertLessThanOrEqual(message.count, 300)
+    }
+
     // MARK: Threads
 
     /// The handler waits for the call it was given to, on that call's thread. A
