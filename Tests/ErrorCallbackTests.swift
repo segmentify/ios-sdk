@@ -39,7 +39,7 @@ final class ErrorCallbackTests: XCTestCase {
         super.tearDown()
     }
 
-    /// The event under test (page view or search) gets `eventAnswer`; the
+    /// The event under test (page view, search or checkout) gets `eventAnswer`; the
     /// impressions the SDK sends on its own get an empty response.
     private func serve() {
         MockURLProtocol.requestHandler = { [unowned self] request in
@@ -55,7 +55,7 @@ final class ErrorCallbackTests: XCTestCase {
                 return (SegmentifyTestSupport.httpResponse(for: request, statusCode: keyStatus), try SegmentifyTestSupport.jsonData(keys))
             }
             let name = SegmentifyTestSupport.eventName(of: request)
-            guard name == "PAGE_VIEW" || name == "SEARCH" else {
+            guard name == "PAGE_VIEW" || name == "SEARCH" || name == "CHECKOUT" else {
                 return (SegmentifyTestSupport.httpResponse(for: request), try SegmentifyTestSupport.emptyEventResponse())
             }
             self.lock.lock()
@@ -195,6 +195,46 @@ final class ErrorCallbackTests: XCTestCase {
         XCTAssertEqual(legacy?.count, 0)
         XCTAssertEqual(first.errors.count, 1)
         XCTAssertEqual(first.answers, 0)
+    }
+
+    // MARK: Checkout steps that used to drop their callback
+
+    private func checkout() -> CheckoutModel {
+        let checkout = CheckoutModel()
+        checkout.totalPrice = 10
+        checkout.productList = [["productId": "p1", "price": 10, "quantity": 1] as [String: Any]]
+        return checkout
+    }
+
+    /// Before SFY-28913 these two methods took a callback and never called it.
+    func testPaymentAndCustomerInformationAnswerTheirCallback() {
+        var payment: [RecommendationModel]?
+        manager.sendPaymentInformation(segmentifyObject: checkout()) { payment = $0 }
+        waitUntil("the payment information callback") { payment != nil }
+
+        var customer: [RecommendationModel]?
+        manager.sendCustomerInformation(segmentifyObject: checkout()) { customer = $0 }
+        waitUntil("the customer information callback") { customer != nil }
+    }
+
+    func testFailedPaymentAndCustomerInformationCallOnlyOnError() {
+        answerEvents(status: 500)
+
+        var payment = Outcome()
+        manager.sendPaymentInformation(segmentifyObject: checkout(), callback: { _ in payment.answers += 1 }, onError: { payment.errors.append($0) })
+        waitUntil("an answer to payment information") { payment.total > 0 }
+
+        var customer = Outcome()
+        manager.sendCustomerInformation(segmentifyObject: checkout(), callback: { _ in customer.answers += 1 }, onError: { customer.errors.append($0) })
+        waitUntil("an answer to customer information") { customer.total > 0 }
+        settle()
+
+        XCTAssertEqual(payment.answers, 0)
+        XCTAssertEqual(payment.errors.count, 1)
+        XCTAssertEqual(payment.errors.first?.httpStatus, 500)
+        XCTAssertEqual(customer.answers, 0)
+        XCTAssertEqual(customer.errors.count, 1)
+        XCTAssertEqual(customer.errors.first?.httpStatus, 500)
     }
 
     // MARK: Search
