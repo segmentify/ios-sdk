@@ -33,6 +33,29 @@ import Foundation
         self.underlyingError = underlyingError
     }
 
+    static func noSession() -> SegmentifyError {
+        SegmentifyError(message: "The event was not sent: no session could be obtained")
+    }
+
+    /// The public form of what the network layer reports.
+    static func from(_ error: Error) -> SegmentifyError {
+        guard let networkError = error as? SegmentifyNetworkError else {
+            return SegmentifyError(message: "The request failed: \(error.localizedDescription)", underlyingError: error)
+        }
+        switch networkError {
+        case .httpStatus(let status, _):
+            return SegmentifyError(message: "The server answered with HTTP \(status)", httpStatus: status)
+        case .rejected(let statusCode):
+            return SegmentifyError(message: "The backend refused the request: \(statusCode)", statusCode: statusCode)
+        case .invalidURL(let url):
+            return SegmentifyError(message: "The request URL is not valid: \(url)")
+        case .unserializableBody:
+            return SegmentifyError(message: "The event could not be serialized")
+        case .noResponse:
+            return SegmentifyError(message: "The server did not answer with an HTTP response")
+        }
+    }
+
     public override var description: String {
         "SegmentifyError: \(message)"
     }
