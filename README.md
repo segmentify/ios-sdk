@@ -49,3 +49,23 @@ Good Luck!
 ## Push & User Updates 1.4.3
 
 1.4.3 update changes user events in the background. This is a completely internal and will not effect sdk users. Also productId parameter has been removed from push interaction event. 
+
+## Error handling
+
+The event methods that take a `callback` answer a failed request with an empty result. To be told about the failure, use the variant with `onError`. Exactly one of the two closures is called, on the main queue.
+
+```swift
+let page = PageModel()
+page.category = "Home Page"
+
+SegmentifyManager.sharedManager().sendPageView(segmentifyObject: page, callback: { recommendations in
+    // show the recommendations
+}, onError: { error in
+    // error.message          what went wrong, for logs
+    // error.httpStatus       HTTP status when the server answered with an error
+    // error.statusCode       the backend's reason when it refused the request, e.g. "NO_SESSIONID"
+    // error.underlyingError  the transport error, e.g. no network
+})
+```
+
+Available for `sendPageView`, `sendProductView`, `sendCustomEvent`, `sendViewBasket`, `sendCustomerInformation`, `sendPaymentInformation`, `sendPurchase`, `sendSearchPageView` and `sendFacetedSearchPageView`, each with a `segmentifyObject`. The existing methods are unchanged.
