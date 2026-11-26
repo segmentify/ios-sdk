@@ -19,10 +19,31 @@ enum SessionWindow {
 
     /// True while the stored session has not ended.
     static func isOpen(defaults: UserDefaults = .standard) -> Bool {
-        true
+        // A missing or unreadable end counts as ended.
+        guard let end = defaults.object(forKey: endKey) as? NSNumber else {
+            return false
+        }
+        return clock().timeIntervalSince1970 <= end.doubleValue
+    }
+
+    /// The stored session id while its window is open.
+    static func storedSessionId(defaults: UserDefaults = .standard) -> String? {
+        guard isOpen(defaults: defaults),
+              let sessionId = defaults.string(forKey: sessionKey),
+              !sessionId.isEmpty else {
+            return nil
+        }
+        return sessionId
+    }
+
+    /// Stores a new session id and opens its window.
+    static func start(sessionId: String?, keepSeconds: Int, defaults: UserDefaults = .standard) {
+        defaults.set(sessionId, forKey: sessionKey)
+        extend(keepSeconds: keepSeconds, defaults: defaults)
     }
 
     /// Starts the window again from now.
     static func extend(keepSeconds: Int, defaults: UserDefaults = .standard) {
+        defaults.set(round(clock().timeIntervalSince1970) + Double(keepSeconds), forKey: endKey)
     }
 }

@@ -259,7 +259,7 @@ public class SegmentifyManager : NSObject {
             
         }
         
-        if self.eventRequest.sessionID == nil {
+        if !self.hasActiveSession() {
             self.sendWhenSessionIsReady(EventSnapshot(of: eventRequest), callback: nil)
         } else {
             self.sendEvent(callback: { (response: [RecommendationModel]) in
@@ -269,7 +269,7 @@ public class SegmentifyManager : NSObject {
     
     func setIDAndSendEventWithCallback(callback: @escaping (_ recommendation: [RecommendationModel]) -> Void) {
         let onFailure = takeErrorHandler()
-        if self.eventRequest.sessionID == nil {
+        if !self.hasActiveSession() {
             self.sendWhenSessionIsReady(EventSnapshot(of: eventRequest), callback: callback, onFailure: onFailure)
         } else {
             self.sendEvent(onFailure: thenClearData(onFailure), callback: { (response: [RecommendationModel]) in
@@ -457,6 +457,7 @@ public class SegmentifyManager : NSObject {
         success: @escaping (_ response: [String:AnyObject]) -> Void,
         failure: @escaping (_ error: Error) -> Void
     ) {
+        SessionWindow.extend(keepSeconds: SegmentifyManager._sessionKeepSecond)
         if let snapshot = snapshot {
             SegmentifyConnectionManager.sharedInstance.request(requestModel: snapshot, success: success, failure: failure)
         } else {
@@ -1746,7 +1747,7 @@ public class SegmentifyManager : NSObject {
             }
         }
         let onFailure = takeErrorHandler()
-        if self.eventRequest.sessionID == nil {
+        if !self.hasActiveSession() {
             // The shared request is overwritten by the next event; keep this search.
             let snapshot = EventSnapshot(of: eventRequest)
             self.getUserIdAndSessionIdRequest( success: { () -> Void in
@@ -1802,7 +1803,7 @@ public class SegmentifyManager : NSObject {
             }
         }
         let onFailure = takeErrorHandler()
-        if self.eventRequest.sessionID == nil {
+        if !self.hasActiveSession() {
             // The shared request is overwritten by the next event; keep this search.
             let snapshot = EventSnapshot(of: eventRequest)
             self.getUserIdAndSessionIdRequest( success: { () -> Void in
@@ -2569,18 +2570,22 @@ public class SegmentifyManager : NSObject {
     }
 
     func initSessionId(sessionId :String!){
-        let nw  =  NSDate().timeIntervalSince1970
-        _ = round(NSDate().timeIntervalSince1970)
-        let nowDate = Date(timeIntervalSince1970: nw)
-        
-        let y=nowDate.addingTimeInterval(TimeInterval(SegmentifyManager._sessionKeepSecond))
-        let newDate = y
-        let addedInterval = round(newDate.timeIntervalSince1970)
-        _ = Date(timeIntervalSince1970: TimeInterval(addedInterval))
-        UserDefaults.standard.set(sessionId ,forKey: "SEGMENTIFY_SESSION_ID")
-        UserDefaults.standard.set(addedInterval,forKey: "SEGMENTIFY_SESSION_ID_TIMESTAMP")
+        SessionWindow.start(sessionId: sessionId, keepSeconds: SegmentifyManager._sessionKeepSecond)
     }
-    
+
+    /// True when the in-memory session can be used: it exists and its window
+    /// has not passed. An ended session is forgotten (SFY-28779).
+    private func hasActiveSession() -> Bool {
+        guard eventRequest.sessionID != nil else {
+            return false
+        }
+        guard SessionWindow.isOpen() else {
+            eventRequest.sessionID = nil
+            return false
+        }
+        return true
+    }
+
     // MARK: Session bootstrap
 
     private typealias SessionWaiter = (success: () -> Void, failure: (() -> Void)?)
@@ -2602,6 +2607,13 @@ public class SegmentifyManager : NSObject {
     }
 
     private func performSessionRequest(attempt: Int) {
+        if let userId = UserDefaults.standard.string(forKey: "SEGMENTIFY_USER_ID"),
+           let sessionId = SessionWindow.storedSessionId() {
+            eventRequest.userID = userId
+            eventRequest.sessionID = sessionId
+            finishSessionRequest(succeeded: true)
+            return
+        }
         let keyCount = UserDefaults.standard.object(forKey: "SEGMENTIFY_USER_ID") != nil ? 1 : 2
         guard let dataCenterUrl = SegmentifyManager.setup.dataCenterUrl,
               let requestURL = URL(string: dataCenterUrl + "/get/key?count=\(keyCount)") else {
@@ -2779,42 +2791,17 @@ public class SegmentifyManager : NSObject {
         }
     }
 
-    /// Stores the keys returned by `/get/key`. Logic unchanged; see SFY-28779.
+    /// Stores the keys returned by `/get/key`. A key is requested only when the
+    /// stored session cannot be used, so a single key is always a new session.
     private func storeSessionKeys(_ jsonArray: NSArray) {
         if jsonArray.count > 1 {
-            self.eventRequest.userID = jsonArray[0] as? String
-            self.eventRequest.sessionID = jsonArray[1] as? String
-            self.initSessionId(sessionId: jsonArray[1] as? String)
-            UserDefaults.standard.set(self.eventRequest.userID, forKey: "SEGMENTIFY_USER_ID")
+            eventRequest.userID = jsonArray[0] as? String
+            UserDefaults.standard.set(eventRequest.userID, forKey: "SEGMENTIFY_USER_ID")
+            eventRequest.sessionID = jsonArray[1] as? String
         } else {
-
-            let nw  =  NSDate().timeIntervalSince1970
-            let nowInterval = round(NSDate().timeIntervalSince1970)
-            _ = Date(timeIntervalSince1970: nw)
-
-            if UserDefaults.standard.object(forKey: "SEGMENTIFY_SESSION_ID_TIMESTAMP") != nil{
-                let lastStamp = nowInterval + round(Double(SegmentifyManager._sessionKeepSecond))
-                UserDefaults.standard.set(lastStamp,forKey: "SEGMENTIFY_SESSION_ID_TIMESTAMP")
-            } else{
-                // A single key was requested, so the only element is the session id.
-                self.initSessionId(sessionId: jsonArray[0] as? String)
-            }
-
-            let getLastStamp = UserDefaults.standard.object(forKey: "SEGMENTIFY_SESSION_ID_TIMESTAMP")
-            let getLastStampToDouble = getLastStamp  as! Double
-            if (nowInterval <= getLastStampToDouble) {
-                print(nowInterval)
-                print(getLastStampToDouble)
-
-                let sessionId = UserDefaults.standard.object(forKey: "SEGMENTIFY_SESSION_ID") as? String
-                self.eventRequest.sessionID = sessionId
-            } else {
-                let lastStamp = nowInterval + round(Double(SegmentifyManager._sessionKeepSecond))
-                UserDefaults.standard.set(lastStamp, forKey: "SEGMENTIFY_SESSION_ID_TIMESTAMP")
-                UserDefaults.standard.set(jsonArray[0] as? String, forKey: "SEGMENTIFY_SESSION_ID")
-                self.eventRequest.sessionID = jsonArray[0] as? String
-            }
+            eventRequest.sessionID = jsonArray[0] as? String
         }
+        initSessionId(sessionId: eventRequest.sessionID)
     }
 
     func testingPrepareNetworkSession(
@@ -2823,6 +2810,7 @@ public class SegmentifyManager : NSObject {
     ) {
         eventRequest.userID = userId
         eventRequest.sessionID = sessionId
+        SessionWindow.extend(keepSeconds: SegmentifyManager._sessionKeepSecond)
     }
 
     /// True when no key request is running and nobody waits for one.
@@ -2876,7 +2864,7 @@ extension SegmentifyManager: CdpSessionResolving, CdpRequestBuilding {
             eventRequest.userID = sentUserId
         }
 
-        if eventRequest.sessionID == nil {
+        if !hasActiveSession() {
             getUserIdAndSessionIdRequest(success: {
                 completion(self.eventRequest.userID, self.eventRequest.sessionID)
             }, failure: {
