@@ -120,7 +120,7 @@ final class UserAgentHeaderTests: XCTestCase {
             self.lock.unlock()
             return (SegmentifyTestSupport.httpResponse(for: request), Data("{}".utf8))
         }
-        SegmentifyManager.setPushConfig(dataCenterUrlPush: "https://push.segmentify.test")
+        SegmentifyManager.setPushConfig(dataCenterUrlPush: "https://segmentify-sdk.test")
         defer { SegmentifyManager.setPushConfig(dataCenterUrlPush: "") }
 
         let permission = NotificationModel()
