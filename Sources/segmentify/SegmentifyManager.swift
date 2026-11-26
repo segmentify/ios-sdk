@@ -339,12 +339,17 @@ public class SegmentifyManager : NSObject {
             if (self.debugMode) {
                 print("Request failed : \(error)")
             }
-            let errorRecModel = SearchModel()
-            errorRecModel.errorString = "error"
-            callback(errorRecModel)
+            callback(SegmentifyManager.failedSearchResult())
         })
     }
     
+    /// What a search answers with when it could not be completed.
+    private static func failedSearchResult() -> SearchModel {
+        let result = SearchModel()
+        result.errorString = "error"
+        return result
+    }
+
     private static func createEmptyFacetedResponse() -> FacetedResponseModel {
         FacetedResponseModel(
             facets: nil,
@@ -1712,7 +1717,7 @@ public class SegmentifyManager : NSObject {
                     callback(response)
                 })
             }, failure: {
-                callback(SearchModel())
+                callback(SegmentifyManager.failedSearchResult())
             })
         } else {
             self.sendSearchEvent(callback: { (response: SearchModel) in
