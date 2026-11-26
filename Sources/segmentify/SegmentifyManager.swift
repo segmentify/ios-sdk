@@ -107,7 +107,22 @@ public class SegmentifyManager : NSObject {
         onFailure: ((SegmentifyError) -> Void)?
     )
     private var waitingEvents: [WaitingEvent] = []
-    private var pendingErrorHandler: ((SegmentifyError) -> Void)?
+    /// The `onError` of the call being made on this thread; see `reportingErrors`.
+    /// Kept per thread so that calls made on different threads cannot take or
+    /// clear each other's handler.
+    private var pendingErrorHandler: ((SegmentifyError) -> Void)? {
+        get {
+            (Thread.current.threadDictionary[SegmentifyManager.pendingErrorHandlerKey] as? ErrorHandlerBox)?.handler
+        }
+        set {
+            if let handler = newValue {
+                Thread.current.threadDictionary[SegmentifyManager.pendingErrorHandlerKey] = ErrorHandlerBox(handler)
+            } else {
+                Thread.current.threadDictionary.removeObject(forKey: SegmentifyManager.pendingErrorHandlerKey)
+            }
+        }
+    }
+    private static let pendingErrorHandlerKey = "com.segmentify.sdk.pendingErrorHandler"
     static let maxWaitingEvents = 50
     private var eventRequest = SegmentifyRegisterRequest()
     private static let setup = ConfigModel()
@@ -2886,4 +2901,13 @@ extension SegmentifyManager: CdpSessionResolving, CdpRequestBuilding {
 
 public func daysBetween(start: Date, end: Date) -> Int {
     return Calendar.current.dateComponents([.day], from: start, to: end).day!
+}
+
+/// A closure, so that it can be kept in a thread's dictionary.
+private final class ErrorHandlerBox {
+    let handler: (SegmentifyError) -> Void
+
+    init(_ handler: @escaping (SegmentifyError) -> Void) {
+        self.handler = handler
+    }
 }
