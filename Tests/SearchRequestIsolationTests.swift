@@ -146,7 +146,6 @@ final class SearchRequestIsolationTests: XCTestCase {
         let filtered = facetedPage("shoes")
         filtered.filters = [FacetedFilter(facet: "brand", values: ["acme"])]
         filtered.trigger = "filter"
-        filtered.type = "faceted"
 
         var answered = 0
         manager.sendFacetedSearchPageView(segmentifyObject: filtered) { _ in answered += 1 }
@@ -159,8 +158,9 @@ final class SearchRequestIsolationTests: XCTestCase {
         let plain = sentBody(query: "bags")
         XCTAssertNotNil(plain)
         XCTAssertNil(plain?["filters"])
-        XCTAssertNil(plain?["trigger"])
-        XCTAssertNil(plain?["type"])
+        // The page model's own defaults, not what the previous search set.
+        XCTAssertEqual(plain?["trigger"] as? String, "keyword")
+        XCTAssertEqual(plain?["type"] as? String, "faceted")
     }
 
     func testInstantSearchDoesNotCarryTheFiltersOfAFacetedSearch() {
