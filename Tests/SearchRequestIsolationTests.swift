@@ -7,6 +7,7 @@ final class SearchRequestIsolationTests: XCTestCase {
     private var manager: SegmentifyManager!
     private let lock = NSLock()
     private var searchQueries: [String] = []
+    private var searchBodies: [[String: Any]] = []
     private var failSearches = false
 
     override func setUp() {
@@ -18,6 +19,7 @@ final class SearchRequestIsolationTests: XCTestCase {
         manager.testingClearNetworkSession()
         manager.testingResetSearchResponses()
         searchQueries = []
+        searchBodies = []
         failSearches = false
         serve()
     }
@@ -42,9 +44,11 @@ final class SearchRequestIsolationTests: XCTestCase {
             guard SegmentifyTestSupport.eventName(of: request) == "SEARCH" else {
                 return (SegmentifyTestSupport.httpResponse(for: request), try SegmentifyTestSupport.emptyEventResponse())
             }
-            let query = SegmentifyTestSupport.requestBody(of: request)?["query"] as? String ?? ""
+            let body = SegmentifyTestSupport.requestBody(of: request) ?? [:]
+            let query = body["query"] as? String ?? ""
             self.lock.lock()
             self.searchQueries.append(query)
+            self.searchBodies.append(body)
             let fail = self.failSearches
             self.lock.unlock()
             if fail {
@@ -62,6 +66,12 @@ final class SearchRequestIsolationTests: XCTestCase {
         lock.lock()
         defer { lock.unlock() }
         return searchQueries
+    }
+
+    private func sentBody(query: String) -> [String: Any]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return searchBodies.first { $0["query"] as? String == query }
     }
 
     private func page(_ query: String) -> SearchPageModel {
@@ -130,5 +140,45 @@ final class SearchRequestIsolationTests: XCTestCase {
         XCTAssertFalse(first === second)
         XCTAssertEqual(first?.campaign?.instanceId, "scn_shoes")
         XCTAssertEqual(second?.campaign?.instanceId, "scn_bags")
+    }
+
+    func testFiltersOfOneFacetedSearchAreNotSentWithTheNext() {
+        let filtered = facetedPage("shoes")
+        filtered.filters = [FacetedFilter(facet: "brand", values: ["acme"])]
+        filtered.trigger = "filter"
+        filtered.type = "faceted"
+
+        var answered = 0
+        manager.sendFacetedSearchPageView(segmentifyObject: filtered) { _ in answered += 1 }
+        waitUntil("the filtered search callback") { answered == 1 }
+        XCTAssertNotNil(sentBody(query: "shoes")?["filters"])
+
+        manager.sendFacetedSearchPageView(segmentifyObject: facetedPage("bags")) { _ in answered += 1 }
+        waitUntil("the plain search callback") { answered == 2 }
+
+        let plain = sentBody(query: "bags")
+        XCTAssertNotNil(plain)
+        XCTAssertNil(plain?["filters"])
+        XCTAssertNil(plain?["trigger"])
+        XCTAssertNil(plain?["type"])
+    }
+
+    func testInstantSearchDoesNotCarryTheFiltersOfAFacetedSearch() {
+        let filtered = facetedPage("shoes")
+        filtered.filters = [FacetedFilter(facet: "brand", values: ["acme"])]
+        filtered.trigger = "filter"
+
+        var answered = false
+        manager.sendFacetedSearchPageView(segmentifyObject: filtered) { _ in answered = true }
+        waitUntil("the filtered search callback") { answered }
+
+        var instant: SearchModel?
+        manager.sendSearchPageView(segmentifyObject: page("bags")) { instant = $0 }
+        waitUntil("the instant search callback") { instant != nil }
+
+        let body = sentBody(query: "bags")
+        XCTAssertEqual(body?["type"] as? String, "instant")
+        XCTAssertNil(body?["filters"])
+        XCTAssertNil(body?["trigger"])
     }
 }
