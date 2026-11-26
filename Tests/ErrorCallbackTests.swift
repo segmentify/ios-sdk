@@ -243,7 +243,7 @@ final class ErrorCallbackTests: XCTestCase {
     private func product() -> ProductModel {
         let product = ProductModel()
         product.productId = "p1"
-        product.title = "Shoe"
+        product.name = "Shoe"
         product.url = "https://shop.test/p1"
         product.image = "https://shop.test/p1.jpg"
         product.category = "Shoes"
