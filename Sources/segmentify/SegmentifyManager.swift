@@ -101,8 +101,28 @@ public class SegmentifyManager : NSObject {
     private var sessionWaiters: [SessionWaiter] = []
     private var isRequestingSession = false
     private let sessionLock = NSLock()
-    private typealias WaitingEvent = (snapshot: EventSnapshot, callback: ((_ recommendation: [RecommendationModel]) -> Void)?)
+    private typealias WaitingEvent = (
+        snapshot: EventSnapshot,
+        callback: ((_ recommendation: [RecommendationModel]) -> Void)?,
+        onFailure: ((SegmentifyError) -> Void)?
+    )
     private var waitingEvents: [WaitingEvent] = []
+    /// The `onError` of the call being made on this thread; see `reportingErrors`.
+    /// Kept per thread so that calls made on different threads cannot take or
+    /// clear each other's handler.
+    private var pendingErrorHandler: ((SegmentifyError) -> Void)? {
+        get {
+            (Thread.current.threadDictionary[SegmentifyManager.pendingErrorHandlerKey] as? ErrorHandlerBox)?.handler
+        }
+        set {
+            if let handler = newValue {
+                Thread.current.threadDictionary[SegmentifyManager.pendingErrorHandlerKey] = ErrorHandlerBox(handler)
+            } else {
+                Thread.current.threadDictionary.removeObject(forKey: SegmentifyManager.pendingErrorHandlerKey)
+            }
+        }
+    }
+    private static let pendingErrorHandlerKey = "com.segmentify.sdk.pendingErrorHandler"
     static let maxWaitingEvents = 50
     private var eventRequest = SegmentifyRegisterRequest()
     private static let setup = ConfigModel()
@@ -248,10 +268,11 @@ public class SegmentifyManager : NSObject {
     }
     
     func setIDAndSendEventWithCallback(callback: @escaping (_ recommendation: [RecommendationModel]) -> Void) {
+        let onFailure = takeErrorHandler()
         if self.eventRequest.sessionID == nil {
-            self.sendWhenSessionIsReady(EventSnapshot(of: eventRequest), callback: callback)
+            self.sendWhenSessionIsReady(EventSnapshot(of: eventRequest), callback: callback, onFailure: onFailure)
         } else {
-            self.sendEvent(callback: { (response: [RecommendationModel]) in
+            self.sendEvent(onFailure: thenClearData(onFailure), callback: { (response: [RecommendationModel]) in
                 callback(response)
                 self.clearData()
                 
@@ -261,7 +282,7 @@ public class SegmentifyManager : NSObject {
     
     /// Sends `snapshot` when given, otherwise the shared request as it is right now.
     /// Every call answers with a result object of its own.
-    func sendSearchEvent(snapshot: EventSnapshot? = nil, callback: @escaping (_ recommendation: SearchModel) -> Void) {
+    func sendSearchEvent(snapshot: EventSnapshot? = nil, onFailure: ((SegmentifyError) -> Void)? = nil, callback: @escaping (_ recommendation: SearchModel) -> Void) {
         dispatchEvent(snapshot: snapshot, success: {(response: [String:AnyObject]) in
             // The parsing helpers fill `searchResponse`; start from an empty one so
             // that nothing of an earlier search is left in this result.
@@ -339,7 +360,11 @@ public class SegmentifyManager : NSObject {
             if (self.debugMode) {
                 print("Request failed : \(error)")
             }
-            callback(SegmentifyManager.failedSearchResult())
+            if let onFailure = onFailure {
+                onFailure(SegmentifyError.from(error))
+            } else {
+                callback(SegmentifyManager.failedSearchResult())
+            }
         })
     }
     
@@ -399,7 +424,7 @@ public class SegmentifyManager : NSObject {
     }
 
     /// Sends `snapshot` when given, otherwise the shared request as it is right now.
-    func sendSearchFacetedEvent(snapshot: EventSnapshot? = nil, callback: @escaping (_ recommendation: FacetedResponseModel) -> Void) {
+    func sendSearchFacetedEvent(snapshot: EventSnapshot? = nil, onFailure: ((SegmentifyError) -> Void)? = nil, callback: @escaping (_ recommendation: FacetedResponseModel) -> Void) {
         dispatchEvent(snapshot: snapshot, success: {(response: [String:AnyObject]) in
             if let decoded = self.parseFacetedSearchResponse(response) {
                 self.facetedResponse = decoded
@@ -418,6 +443,10 @@ public class SegmentifyManager : NSObject {
             if self.debugMode {
                 print("Request failed : \(error)")
             }
+            if let onFailure = onFailure {
+                onFailure(SegmentifyError.from(error))
+                return
+            }
             self.deliverFacetedSearchCallback(callback, response: self.makeEmptyFacetedResponse())
         })
     }
@@ -435,7 +464,9 @@ public class SegmentifyManager : NSObject {
         }
     }
 
-    func sendEvent(snapshot: EventSnapshot? = nil, callback: @escaping (_ recommendation: [RecommendationModel]) -> Void) {
+    /// A failure goes to `onFailure` when there is one, otherwise `callback`
+    /// answers with an empty result.
+    func sendEvent(snapshot: EventSnapshot? = nil, onFailure: ((SegmentifyError) -> Void)? = nil, callback: @escaping (_ recommendation: [RecommendationModel]) -> Void) {
         dispatchEvent(snapshot: snapshot, success: {(response: [String:AnyObject]) in
             
             self.recommendations.removeAll()
@@ -557,7 +588,11 @@ public class SegmentifyManager : NSObject {
             }
             // Never hand back what an earlier response left in the shared array.
             self.recommendations.removeAll()
-            callback([])
+            if let onFailure = onFailure {
+                onFailure(SegmentifyError.from(error))
+            } else {
+                callback([])
+            }
         })
     }
     
@@ -1425,7 +1460,7 @@ public class SegmentifyManager : NSObject {
         eventRequest.totalPrice = totalPrice
         eventRequest.products  =  productList
         
-        setIDAndSendEvent()
+        setIDAndSendEventWithCallback(callback: callback)
     }
     
     //Checkout Customer Information Event
@@ -1469,7 +1504,7 @@ public class SegmentifyManager : NSObject {
         eventRequest.totalPrice = totalPrice
         eventRequest.products  =  productList
         
-        setIDAndSendEvent()
+        setIDAndSendEventWithCallback(callback: callback)
     }
     
     //Checkout View Basket Event
@@ -1710,19 +1745,24 @@ public class SegmentifyManager : NSObject {
                 self.eventRequest.userID = UserDefaults.standard.object(forKey: "SEGMENTIFY_USER_ID") as? String
             }
         }
+        let onFailure = takeErrorHandler()
         if self.eventRequest.sessionID == nil {
             // The shared request is overwritten by the next event; keep this search.
             let snapshot = EventSnapshot(of: eventRequest)
             self.getUserIdAndSessionIdRequest( success: { () -> Void in
                 snapshot.applySession(userId: self.eventRequest.userID, sessionId: self.eventRequest.sessionID)
-                self.sendSearchEvent(snapshot: snapshot, callback: { (response: SearchModel) in
+                self.sendSearchEvent(snapshot: snapshot, onFailure: onFailure, callback: { (response: SearchModel) in
                     callback(response)
                 })
             }, failure: {
-                callback(SegmentifyManager.failedSearchResult())
+                if let onFailure = onFailure {
+                    onFailure(SegmentifyError.noSession())
+                } else {
+                    callback(SegmentifyManager.failedSearchResult())
+                }
             })
         } else {
-            self.sendSearchEvent(callback: { (response: SearchModel) in
+            self.sendSearchEvent(onFailure: thenClearData(onFailure), callback: { (response: SearchModel) in
                 callback(response)
                 self.clearData()
             })
@@ -1761,19 +1801,24 @@ public class SegmentifyManager : NSObject {
                 self.eventRequest.userID = UserDefaults.standard.object(forKey: "SEGMENTIFY_USER_ID") as? String
             }
         }
+        let onFailure = takeErrorHandler()
         if self.eventRequest.sessionID == nil {
             // The shared request is overwritten by the next event; keep this search.
             let snapshot = EventSnapshot(of: eventRequest)
             self.getUserIdAndSessionIdRequest( success: { () -> Void in
                 snapshot.applySession(userId: self.eventRequest.userID, sessionId: self.eventRequest.sessionID)
-                self.sendSearchFacetedEvent(snapshot: snapshot, callback: { (response: FacetedResponseModel) in
+                self.sendSearchFacetedEvent(snapshot: snapshot, onFailure: onFailure, callback: { (response: FacetedResponseModel) in
                     callback(response)
                 })
             }, failure: {
-                callback(self.makeEmptyFacetedResponse())
+                if let onFailure = onFailure {
+                    onFailure(SegmentifyError.noSession())
+                } else {
+                    callback(self.makeEmptyFacetedResponse())
+                }
             })
         } else {
-            self.sendSearchFacetedEvent(callback: { (response: FacetedResponseModel) in
+            self.sendSearchFacetedEvent(onFailure: thenClearData(onFailure), callback: { (response: FacetedResponseModel) in
                 callback(response)
                 self.clearData()
             })
@@ -2627,13 +2672,52 @@ public class SegmentifyManager : NSObject {
         }
     }
 
+    // MARK: Error callback
+
+    /// Runs `send`, one of the `callback:`-only methods, so that its failure
+    /// goes to `onError`.
+    func reportingErrors(to onError: @escaping (SegmentifyError) -> Void, _ send: () -> Void) {
+        pendingErrorHandler = onError
+        send()
+
+        // Still there: the method returned before it got to sending.
+        if pendingErrorHandler != nil {
+            pendingErrorHandler = nil
+            let error = SegmentifyError(message: "The event was not sent: a required field is missing or not valid, see the log")
+            DispatchQueue.main.async { onError(error) }
+        }
+    }
+
+    /// `onFailure` followed by the clean-up a call with a session does after
+    /// its answer.
+    private func thenClearData(_ onFailure: ((SegmentifyError) -> Void)?) -> ((SegmentifyError) -> Void)? {
+        guard let onFailure = onFailure else {
+            return nil
+        }
+        return { (error: SegmentifyError) in
+            onFailure(error)
+            self.clearData()
+        }
+    }
+
+    /// The error handler of the call being made, when it was made through an
+    /// `onError` variant. Taking it means the call got as far as sending.
+    func takeErrorHandler() -> ((SegmentifyError) -> Void)? {
+        defer { pendingErrorHandler = nil }
+        return pendingErrorHandler
+    }
+
     // MARK: Events waiting for a session
 
     /// Keeps the event until a session exists. Every successful session request
     /// sends all waiting events, oldest first.
-    private func sendWhenSessionIsReady(_ snapshot: EventSnapshot, callback: ((_ recommendation: [RecommendationModel]) -> Void)?) {
+    private func sendWhenSessionIsReady(
+        _ snapshot: EventSnapshot,
+        callback: ((_ recommendation: [RecommendationModel]) -> Void)?,
+        onFailure: ((SegmentifyError) -> Void)? = nil
+    ) {
         sessionLock.lock()
-        waitingEvents.append((snapshot: snapshot, callback: callback))
+        waitingEvents.append((snapshot: snapshot, callback: callback, onFailure: onFailure))
         var dropped: WaitingEvent?
         if waitingEvents.count > SegmentifyManager.maxWaitingEvents {
             dropped = waitingEvents.removeFirst()
@@ -2642,7 +2726,9 @@ public class SegmentifyManager : NSObject {
 
         if let dropped = dropped {
             logWaitingEvent("dropped, too many events are waiting for a session", dropped.snapshot)
-            if let droppedCallback = dropped.callback {
+            if let onFailure = dropped.onFailure {
+                DispatchQueue.main.async { onFailure(SegmentifyError(message: "The event was dropped: too many events are waiting for a session")) }
+            } else if let droppedCallback = dropped.callback {
                 DispatchQueue.main.async { droppedCallback([]) }
             }
         }
@@ -2659,7 +2745,7 @@ public class SegmentifyManager : NSObject {
         for event in events {
             event.snapshot.applySession(userId: eventRequest.userID, sessionId: eventRequest.sessionID)
             let callback = event.callback
-            sendEvent(snapshot: event.snapshot, callback: { (response: [RecommendationModel]) in
+            sendEvent(snapshot: event.snapshot, onFailure: event.onFailure, callback: { (response: [RecommendationModel]) in
                 callback?(response)
             })
         }
@@ -2676,7 +2762,11 @@ public class SegmentifyManager : NSObject {
         sessionLock.unlock()
 
         for event in answered {
-            event.callback?([])
+            if let onFailure = event.onFailure {
+                onFailure(SegmentifyError.noSession())
+            } else {
+                event.callback?([])
+            }
         }
         for event in kept {
             logWaitingEvent("kept until a session is available", event.snapshot)
@@ -2815,4 +2905,13 @@ extension SegmentifyManager: CdpSessionResolving, CdpRequestBuilding {
 
 public func daysBetween(start: Date, end: Date) -> Int {
     return Calendar.current.dateComponents([.day], from: start, to: end).day!
+}
+
+/// A closure, so that it can be kept in a thread's dictionary.
+private final class ErrorHandlerBox {
+    let handler: (SegmentifyError) -> Void
+
+    init(_ handler: @escaping (SegmentifyError) -> Void) {
+        self.handler = handler
+    }
 }
