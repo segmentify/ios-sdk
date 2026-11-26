@@ -1680,6 +1680,10 @@ public class SegmentifyManager : NSObject {
         
         eventRequest.query = segmentifyObject.query
         eventRequest.type = "instant"
+        // The shared request still holds what the previous search set.
+        eventRequest.trigger = nil
+        eventRequest.ordering = nil
+        eventRequest.filters = nil
         if segmentifyObject.lang != nil {
             eventRequest.lang = segmentifyObject.lang
         }
@@ -1725,23 +1729,12 @@ public class SegmentifyManager : NSObject {
         
         eventRequest.query = segmentifyObject.query
         
-        if segmentifyObject.trigger != nil{
-            eventRequest.trigger = segmentifyObject.trigger
-        }
-        if segmentifyObject.type != nil{
-            eventRequest.type = segmentifyObject.type
-        }
-        if segmentifyObject.ordering != nil {
-            eventRequest.ordering = segmentifyObject.ordering
-        }
-        if segmentifyObject.filters != nil {
-            var filtersArray = [Any]()
-            segmentifyObject.filters?.forEach {
-                filter in
-                filtersArray.append(filter.nsDictionary)
-            }
-            eventRequest.filters = filtersArray
-        }
+        // Assigned unconditionally: the shared request still holds what the
+        // previous search set, and a search without filters must not send them.
+        eventRequest.trigger = segmentifyObject.trigger
+        eventRequest.type = segmentifyObject.type
+        eventRequest.ordering = segmentifyObject.ordering
+        eventRequest.filters = segmentifyObject.filters?.map { $0.nsDictionary }
         if segmentifyObject.lang != nil {
             eventRequest.lang = segmentifyObject.lang
         }
