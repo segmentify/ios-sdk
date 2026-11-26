@@ -68,8 +68,14 @@ enum SegmentifyUserAgent {
         return text
     }
 
-    /// The hardware identifier, for example `iPhone14,2`.
+    /// The hardware identifier, for example `iPhone14,2`. On the simulator,
+    /// the simulated device rather than the Mac's architecture.
     static func hardwareModel() -> String {
+        #if targetEnvironment(simulator)
+        if let simulated = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"], !simulated.isEmpty {
+            return simulated
+        }
+        #endif
         var systemInfo = utsname()
         uname(&systemInfo)
         return Mirror(reflecting: systemInfo.machine).children.reduce("") { identifier, element in
