@@ -39,7 +39,7 @@ final class ErrorCallbackTests: XCTestCase {
         super.tearDown()
     }
 
-    /// The event under test (page view, search or checkout) gets `eventAnswer`; the
+    /// The event under test gets `eventAnswer`; the
     /// impressions the SDK sends on its own get an empty response.
     private func serve() {
         MockURLProtocol.requestHandler = { [unowned self] request in
@@ -55,7 +55,8 @@ final class ErrorCallbackTests: XCTestCase {
                 return (SegmentifyTestSupport.httpResponse(for: request, statusCode: keyStatus), try SegmentifyTestSupport.jsonData(keys))
             }
             let name = SegmentifyTestSupport.eventName(of: request)
-            guard name == "PAGE_VIEW" || name == "SEARCH" || name == "CHECKOUT" else {
+            // Impressions and widget views the SDK sends on its own are INTERACTION events.
+            guard name != nil, name != "INTERACTION" else {
                 return (SegmentifyTestSupport.httpResponse(for: request), try SegmentifyTestSupport.emptyEventResponse())
             }
             self.lock.lock()
@@ -235,6 +236,79 @@ final class ErrorCallbackTests: XCTestCase {
         XCTAssertEqual(customer.answers, 0)
         XCTAssertEqual(customer.errors.count, 1)
         XCTAssertEqual(customer.errors.first?.httpStatus, 500)
+    }
+
+    // MARK: Every variant
+
+    private func product() -> ProductModel {
+        let product = ProductModel()
+        product.productId = "p1"
+        product.title = "Shoe"
+        product.url = "https://shop.test/p1"
+        product.image = "https://shop.test/p1.jpg"
+        product.category = "Shoes"
+        product.price = 10
+        return product
+    }
+
+    private func customEvent() -> CustomEventModel {
+        let event = CustomEventModel()
+        event.type = "video-watched"
+        return event
+    }
+
+    /// The variants not covered above, with an HTTP error: each calls only onError.
+    func testEveryRecommendationVariantReportsAFailure() {
+        answerEvents(status: 500)
+        let calls: [(String, (@escaping ([RecommendationModel]) -> Void, @escaping (SegmentifyError) -> Void) -> Void)] = [
+            ("sendProductView", { self.manager.sendProductView(segmentifyObject: self.product(), callback: $0, onError: $1) }),
+            ("sendCustomEvent", { self.manager.sendCustomEvent(segmentifyObject: self.customEvent(), callback: $0, onError: $1) }),
+            ("sendViewBasket", { self.manager.sendViewBasket(segmentifyObject: self.checkout(), callback: $0, onError: $1) }),
+            ("sendPurchase", { self.manager.sendPurchase(segmentifyObject: self.checkout(), callback: $0, onError: $1) }),
+        ]
+
+        for (name, call) in calls {
+            var outcome = Outcome()
+            call({ _ in outcome.answers += 1 }, { outcome.errors.append($0) })
+            waitUntil("an answer to \(name)") { outcome.total > 0 }
+            settle()
+            XCTAssertEqual(outcome.answers, 0, name)
+            XCTAssertEqual(outcome.errors.count, 1, name)
+            XCTAssertEqual(outcome.errors.first?.httpStatus, 500, name)
+        }
+    }
+
+    // MARK: Threads
+
+    /// The handler waits for the call it was given to, on that call's thread. A
+    /// call made on another thread in the meantime must not take or clear it.
+    func testErrorHandlerBelongsToTheThreadThatMadeTheCall() {
+        let inSend = DispatchSemaphore(value: 0)
+        let proceed = DispatchSemaphore(value: 0)
+        let finished = expectation(description: "background call finished")
+        var takenOnBackground = false
+        var backgroundErrors = 0
+
+        DispatchQueue.global().async {
+            self.manager.reportingErrors(to: { _ in backgroundErrors += 1 }) {
+                inSend.signal()
+                proceed.wait()
+                takenOnBackground = self.manager.takeErrorHandler() != nil
+            }
+            finished.fulfill()
+        }
+        inSend.wait()
+
+        var mainErrors = 0
+        manager.reportingErrors(to: { _ in mainErrors += 1 }) {}
+        proceed.signal()
+
+        wait(for: [finished], timeout: 5)
+        waitUntil("the main thread call to report") { mainErrors == 1 }
+        settle()
+        XCTAssertTrue(takenOnBackground, "the background call lost its handler")
+        XCTAssertEqual(backgroundErrors, 0, "a call that got as far as sending was reported as not sent")
+        XCTAssertEqual(mainErrors, 1)
     }
 
     // MARK: Search

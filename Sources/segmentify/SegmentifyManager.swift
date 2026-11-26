@@ -2683,7 +2683,7 @@ public class SegmentifyManager : NSObject {
 
     /// The error handler of the call being made, when it was made through an
     /// `onError` variant. Taking it means the call got as far as sending.
-    private func takeErrorHandler() -> ((SegmentifyError) -> Void)? {
+    func takeErrorHandler() -> ((SegmentifyError) -> Void)? {
         defer { pendingErrorHandler = nil }
         return pendingErrorHandler
     }
