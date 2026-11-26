@@ -9,6 +9,7 @@ final class SearchRequestIsolationTests: XCTestCase {
     private var searchQueries: [String] = []
     private var searchBodies: [[String: Any]] = []
     private var failSearches = false
+    private var failKeyRequests = false
 
     override func setUp() {
         super.setUp()
@@ -21,6 +22,8 @@ final class SearchRequestIsolationTests: XCTestCase {
         searchQueries = []
         searchBodies = []
         failSearches = false
+        failKeyRequests = false
+        SegmentifyManager.sessionRetryDelays = [0.01, 0.01]
         serve()
     }
 
@@ -28,6 +31,7 @@ final class SearchRequestIsolationTests: XCTestCase {
         waitUntil("the session request to finish") { self.manager.testingIsSessionRequestIdle }
         URLProtocol.unregisterClass(MockURLProtocol.self)
         MockURLProtocol.requestHandler = nil
+        SegmentifyManager.sessionRetryDelays = SegmentifyManager.defaultSessionRetryDelays
         SegmentifyTestSupport.resetTestNetworking()
         SegmentifyTestSupport.clearSessionDefaults()
         super.tearDown()
@@ -39,6 +43,12 @@ final class SearchRequestIsolationTests: XCTestCase {
         MockURLProtocol.requestHandler = { [unowned self] request in
             let url = request.url?.absoluteString ?? ""
             if url.contains("/get/key") {
+                self.lock.lock()
+                let failKey = self.failKeyRequests
+                self.lock.unlock()
+                if failKey {
+                    return (SegmentifyTestSupport.httpResponse(for: request, statusCode: 500), Data())
+                }
                 return (SegmentifyTestSupport.httpResponse(for: request), try SegmentifyTestSupport.jsonData(["user-1", "session-1"]))
             }
             guard SegmentifyTestSupport.eventName(of: request) == "SEARCH" else {
@@ -99,13 +109,15 @@ final class SearchRequestIsolationTests: XCTestCase {
     }
 
     func testTwoFacetedSearchesWaitingForASessionEachSendTheirOwnQuery() {
-        var answered = 0
+        var results: [String: FacetedResponseModel] = [:]
 
-        manager.sendFacetedSearchPageView(segmentifyObject: facetedPage("shoes")) { _ in answered += 1 }
-        manager.sendFacetedSearchPageView(segmentifyObject: facetedPage("bags")) { _ in answered += 1 }
+        manager.sendFacetedSearchPageView(segmentifyObject: facetedPage("shoes")) { results["shoes"] = $0 }
+        manager.sendFacetedSearchPageView(segmentifyObject: facetedPage("bags")) { results["bags"] = $0 }
 
-        waitUntil("both faceted search callbacks") { answered == 2 }
+        waitUntil("both faceted search callbacks") { results.count == 2 }
         XCTAssertEqual(sentQueries().sorted(), ["bags", "shoes"])
+        XCTAssertEqual(results["shoes"]?.products?.first?.name, "shoes")
+        XCTAssertEqual(results["bags"]?.products?.first?.name, "bags")
     }
 
     func testFailedSearchDoesNotAnswerWithThePreviousResult() {
@@ -180,5 +192,19 @@ final class SearchRequestIsolationTests: XCTestCase {
         XCTAssertEqual(body?["type"] as? String, "instant")
         XCTAssertNil(body?["filters"])
         XCTAssertNil(body?["trigger"])
+    }
+
+    func testSearchThatCannotGetASessionAnswersWithAnError() {
+        lock.lock()
+        failKeyRequests = true
+        lock.unlock()
+
+        var result: SearchModel?
+        manager.sendSearchPageView(segmentifyObject: page("shoes")) { result = $0 }
+        waitUntil("the search callback") { result != nil }
+
+        XCTAssertEqual(result?.errorString, "error")
+        XCTAssertEqual(result?.products?.count ?? 0, 0)
+        XCTAssertEqual(sentQueries(), [], "no search may be sent without a session")
     }
 }
