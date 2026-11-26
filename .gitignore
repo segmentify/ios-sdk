@@ -1,4 +1,7 @@
 .build/
+.idea
+# Demo environment overrides (see Demo/README.md)
+Secrets.plist
 
 /Example/Pods/
 /Example/build

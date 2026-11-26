@@ -43,12 +43,10 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        let userInfo = notification.request.content.userInfo
-        let obj = NotificationModel()
-        obj.type = NotificationType.VIEW
-        obj.providerType = ProviderType.FIREBASE
-        obj.instanceId = userInfo["instanceId"] as? String ?? ""
-        SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
+        // handlePushReceived sends the VIEW interaction with instanceId (incl. FCM's
+        // gcm.notification.instanceId), correlationId and providerType from the payload
+        let payload = SegmentifyPushPayload(userInfo: notification.request.content.userInfo)
+        SegmentifyManager.sharedManager().handlePushReceived(payload)
         completionHandler([.banner, .sound, .badge])
     }
 
@@ -57,29 +55,10 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let userInfo = response.notification.request.content.userInfo
-
-        if let deepLinkString = userInfo["deeplink"] as? String,
-           var components = URLComponents(string: deepLinkString) {
-            var queryItems = components.queryItems ?? []
-            if let image = userInfo["image"] as? String {
-                queryItems.append(URLQueryItem(name: "image", value: image))
-            }
-            components.queryItems = queryItems
-            if let finalUrl = components.url {
-                DispatchQueue.main.async {
-                    UIApplication.shared.open(finalUrl)
-                }
-            }
-        }
-
-        let obj = NotificationModel()
-        obj.deviceToken = ""
-        obj.type = NotificationType.CLICK
-        obj.providerType = ProviderType.FIREBASE
-        obj.instanceId = userInfo["instanceId"] as? String ?? ""
-        SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
-        completionHandler()
+        SegmentifyManager.sharedManager().handlePushNotificationResponse(
+            response: response,
+            completion: completionHandler
+        )
     }
 }
 

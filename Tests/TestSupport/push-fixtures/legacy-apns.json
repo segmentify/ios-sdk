@@ -1,0 +1,19 @@
+{
+  "aps": {
+    "alert": {
+      "title": "Summer sale",
+      "body": "Up to 50% off"
+    },
+    "badge": 1,
+    "sound": "default",
+    "content-available": 1,
+    "mutable-content": 1
+  },
+  "instanceId": "ins-1",
+  "image": "https://cdn.example.com/sale.png",
+  "title": "Summer sale",
+  "deeplink": "app://sale-ios",
+  "icon": "https://cdn.example.com/logo.png",
+  "actions": "[{\"action\":\"action0\",\"title\":\"Open\",\"redirectUrl\":\"https://shop.example.com/open\"}]",
+  "actionUrls": "[\"https://shop.example.com/open?_sgm_campaign=ins-1\"]"
+}

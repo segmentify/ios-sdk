@@ -28,7 +28,10 @@ let package = Package(
         .testTarget(
             name: "SegmentifyTests",
             dependencies: ["Segmentify"],
-            path: "Tests"
+            path: "Tests",
+            resources: [
+                .copy("TestSupport/push-fixtures")
+            ]
         )
     ]
 )

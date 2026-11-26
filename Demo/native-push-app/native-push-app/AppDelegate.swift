@@ -9,10 +9,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
 
-        // Segmentify Config
-        // Change your appKey, dataCenterUrl and subDomain values with suitable one
-        SegmentifyManager.config(appkey: "5c571072-068e-40c5-8dbc-d8448158de19", dataCenterUrl: "https://gandalf-qa.segmentify.com", subDomain: "demo.segmentify.com")
-        SegmentifyManager.setPushConfig(dataCenterUrlPush: "https://gimli-qa.segmentify.com")
+        // Segmentify Config (Segmentify QA by default; see DemoEnvironment to override)
+        DemoEnvironment.apply()
         let _ = SegmentifyManager.logStatus(isVisible: true)
         let _ = SegmentifyManager.setSessionKeepSecond(sessionKeepSecond: 604800)
 
@@ -47,47 +45,20 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         
-        let userInfo = notification.request.content.userInfo
-        
-        // Segmentify Event
-        let obj = NotificationModel()
-        obj.type = NotificationType.VIEW
-        obj.providerType = ProviderType.FIREBASE
-        obj.instanceId = userInfo["instanceId"] as? String ?? ""
-        SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
+        // handlePushReceived sends the VIEW interaction with instanceId (incl. FCM's
+        // gcm.notification.instanceId), correlationId and providerType from the payload
+        let payload = SegmentifyPushPayload(userInfo: notification.request.content.userInfo)
+        SegmentifyManager.sharedManager().handlePushReceived(payload)
         completionHandler([.banner, .sound, .badge])
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        
-        let userInfo = response.notification.request.content.userInfo
-
-        if let deepLinkString = userInfo["deeplink"] as? String,
-           var components = URLComponents(string: deepLinkString) {
-            var queryItems = components.queryItems ?? []
-            let image = userInfo["image"] as? String
-            let newQueryItem = URLQueryItem(name: "image", value: image)
-            queryItems.append(newQueryItem)
-            components.queryItems = queryItems
-            if let finalUrl = components.url {
-                DispatchQueue.main.async {
-                    UIApplication.shared.open(finalUrl)
-                }
-            }
-        } else {
-            print("⚠️ 'deeplink' cannot be found")
-        }
-        
-        let obj = NotificationModel()
-        obj.deviceToken = ""
-        obj.type = NotificationType.CLICK
-        obj.providerType = ProviderType.FIREBASE
-        obj.instanceId = userInfo["instanceId"] as? String ?? ""
-        SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
-        
-        completionHandler()
+        SegmentifyManager.sharedManager().handlePushNotificationResponse(
+            response: response,
+            completion: completionHandler
+        )
     }
 }
 
@@ -104,5 +75,44 @@ extension AppDelegate: MessagingDelegate {
         obj.providerType = ProviderType.FIREBASE
         obj.userId = "2"
         SegmentifyManager.sharedManager().sendNotification(segmentifyObject: obj)
+    }
+}
+
+/// Backend settings for this demo. The defaults are Segmentify QA. To run against another
+/// environment (e.g. Unifonic), override any value without editing code, either as an
+/// environment variable in the scheme (Edit Scheme > Run > Arguments) or in a gitignored
+/// Secrets.plist in the app target. See Demo/README.md and Demo/Secrets.example.plist.
+enum DemoEnvironment {
+    static var authHeader: String? { value("SEGMENTIFY_AUTH_HEADER") }
+    /// With an auth header and no explicit API key, no apiKey is sent.
+    static var apiKey: String? { value("SEGMENTIFY_API_KEY") ?? (authHeader == nil ? "5c571072-068e-40c5-8dbc-d8448158de19" : nil) }
+    static var dataCenterUrl: String { value("SEGMENTIFY_DATA_CENTER_URL") ?? "https://gandalf-qa.segmentify.com" }
+    static var pushDataCenterUrl: String { value("SEGMENTIFY_PUSH_DATA_CENTER_URL") ?? "https://gimli-qa.segmentify.com" }
+    static var subDomain: String { value("SEGMENTIFY_SUB_DOMAIN") ?? "demo.segmentify.com" }
+
+    static func apply() {
+        SegmentifyManager.setConfig(
+            apiKey: apiKey,
+            dataCenterUrl: dataCenterUrl,
+            subDomain: subDomain,
+            authHeader: authHeader
+        )
+        SegmentifyManager.setPushConfig(dataCenterUrlPush: pushDataCenterUrl)
+    }
+
+    private static let secrets: [String: Any] = {
+        guard let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
+              let values = NSDictionary(contentsOf: url) as? [String: Any] else {
+            return [:]
+        }
+        return values
+    }()
+
+    private static func value(_ key: String) -> String? {
+        let raw = ProcessInfo.processInfo.environment[key] ?? secrets[key] as? String
+        guard let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 }

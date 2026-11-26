@@ -11,7 +11,8 @@ protocol SegmentifyRequestProtocol {
     var method: String { get }
     var subdomain: String { get }
     var dataCenterUrl: String { get }
-    var apiKey: String { get }
+    var apiKey: String? { get }
+    var authHeader: String? { get }
     
     func toDictionary() -> Dictionary<AnyHashable, Any>
 }
