@@ -68,4 +68,6 @@ SegmentifyManager.sharedManager().sendPageView(segmentifyObject: page, callback:
 })
 ```
 
+`SegmentifyError` has a public initialiser, so a test of your app can create one to simulate a failure.
+
 Available for `sendPageView`, `sendProductView`, `sendCustomEvent`, `sendViewBasket`, `sendCustomerInformation`, `sendPaymentInformation`, `sendPurchase`, `sendSearchPageView` and `sendFacetedSearchPageView`, each with a `segmentifyObject`. The existing methods are unchanged.
