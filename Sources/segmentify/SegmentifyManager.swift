@@ -259,9 +259,14 @@ public class SegmentifyManager : NSObject {
         }
     }
     
-    func sendSearchEvent(callback: @escaping (_ recommendation: SearchModel) -> Void) {
-        SegmentifyConnectionManager.sharedInstance.request(requestModel: eventRequest, success: {(response: [String:AnyObject]) in
-            
+    /// Sends `snapshot` when given, otherwise the shared request as it is right now.
+    /// Every call answers with a result object of its own.
+    func sendSearchEvent(snapshot: EventSnapshot? = nil, callback: @escaping (_ recommendation: SearchModel) -> Void) {
+        dispatchEvent(snapshot: snapshot, success: {(response: [String:AnyObject]) in
+            // The parsing helpers fill `searchResponse`; start from an empty one so
+            // that nothing of an earlier search is left in this result.
+            self.searchResponse = SearchModel()
+
             guard let searches = response["search"] as? [[Dictionary<AnyHashable,Any>]] else {
                 self.logResponseProblem("no search response, statusCode: \(String(describing: response["statusCode"]))")
                 callback(self.searchResponse)
@@ -334,12 +339,17 @@ public class SegmentifyManager : NSObject {
             if (self.debugMode) {
                 print("Request failed : \(error)")
             }
-            let errorRecModel = SearchModel()
-            errorRecModel.errorString = "error"
-            callback(self.searchResponse)
+            callback(SegmentifyManager.failedSearchResult())
         })
     }
     
+    /// What a search answers with when it could not be completed.
+    private static func failedSearchResult() -> SearchModel {
+        let result = SearchModel()
+        result.errorString = "error"
+        return result
+    }
+
     private static func createEmptyFacetedResponse() -> FacetedResponseModel {
         FacetedResponseModel(
             facets: nil,
@@ -388,8 +398,9 @@ public class SegmentifyManager : NSObject {
         }
     }
 
-    func sendSearchFacetedEvent(callback: @escaping (_ recommendation: FacetedResponseModel) -> Void) {
-        SegmentifyConnectionManager.sharedInstance.request(requestModel: eventRequest, success: {(response: [String:AnyObject]) in
+    /// Sends `snapshot` when given, otherwise the shared request as it is right now.
+    func sendSearchFacetedEvent(snapshot: EventSnapshot? = nil, callback: @escaping (_ recommendation: FacetedResponseModel) -> Void) {
+        dispatchEvent(snapshot: snapshot, success: {(response: [String:AnyObject]) in
             if let decoded = self.parseFacetedSearchResponse(response) {
                 self.facetedResponse = decoded
                 self.deliverFacetedSearchCallback(callback, response: decoded)
@@ -1674,6 +1685,10 @@ public class SegmentifyManager : NSObject {
         
         eventRequest.query = segmentifyObject.query
         eventRequest.type = "instant"
+        // The shared request still holds what the previous search set.
+        eventRequest.trigger = nil
+        eventRequest.ordering = nil
+        eventRequest.filters = nil
         if segmentifyObject.lang != nil {
             eventRequest.lang = segmentifyObject.lang
         }
@@ -1694,12 +1709,15 @@ public class SegmentifyManager : NSObject {
             }
         }
         if self.eventRequest.sessionID == nil {
+            // The shared request is overwritten by the next event; keep this search.
+            let snapshot = EventSnapshot(of: eventRequest)
             self.getUserIdAndSessionIdRequest( success: { () -> Void in
-                self.sendSearchEvent(callback: { (response: SearchModel) in
+                snapshot.applySession(userId: self.eventRequest.userID, sessionId: self.eventRequest.sessionID)
+                self.sendSearchEvent(snapshot: snapshot, callback: { (response: SearchModel) in
                     callback(response)
                 })
             }, failure: {
-                callback(SearchModel())
+                callback(SegmentifyManager.failedSearchResult())
             })
         } else {
             self.sendSearchEvent(callback: { (response: SearchModel) in
@@ -1716,23 +1734,12 @@ public class SegmentifyManager : NSObject {
         
         eventRequest.query = segmentifyObject.query
         
-        if segmentifyObject.trigger != nil{
-            eventRequest.trigger = segmentifyObject.trigger
-        }
-        if segmentifyObject.type != nil{
-            eventRequest.type = segmentifyObject.type
-        }
-        if segmentifyObject.ordering != nil {
-            eventRequest.ordering = segmentifyObject.ordering
-        }
-        if segmentifyObject.filters != nil {
-            var filtersArray = [Any]()
-            segmentifyObject.filters?.forEach {
-                filter in
-                filtersArray.append(filter.nsDictionary)
-            }
-            eventRequest.filters = filtersArray
-        }
+        // Assigned unconditionally: the shared request still holds what the
+        // previous search set, and a search without filters must not send them.
+        eventRequest.trigger = segmentifyObject.trigger
+        eventRequest.type = segmentifyObject.type
+        eventRequest.ordering = segmentifyObject.ordering
+        eventRequest.filters = segmentifyObject.filters?.map { $0.nsDictionary }
         if segmentifyObject.lang != nil {
             eventRequest.lang = segmentifyObject.lang
         }
@@ -1753,8 +1760,11 @@ public class SegmentifyManager : NSObject {
             }
         }
         if self.eventRequest.sessionID == nil {
+            // The shared request is overwritten by the next event; keep this search.
+            let snapshot = EventSnapshot(of: eventRequest)
             self.getUserIdAndSessionIdRequest( success: { () -> Void in
-                self.sendSearchFacetedEvent(callback: { (response: FacetedResponseModel) in
+                snapshot.applySession(userId: self.eventRequest.userID, sessionId: self.eventRequest.sessionID)
+                self.sendSearchFacetedEvent(snapshot: snapshot, callback: { (response: FacetedResponseModel) in
                     callback(response)
                 })
             }, failure: {
