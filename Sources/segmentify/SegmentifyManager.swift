@@ -1443,7 +1443,7 @@ public class SegmentifyManager : NSObject {
         eventRequest.totalPrice = totalPrice
         eventRequest.products  =  productList
         
-        setIDAndSendEvent()
+        setIDAndSendEventWithCallback(callback: callback)
     }
     
     //Checkout Customer Information Event
@@ -1487,7 +1487,7 @@ public class SegmentifyManager : NSObject {
         eventRequest.totalPrice = totalPrice
         eventRequest.products  =  productList
         
-        setIDAndSendEvent()
+        setIDAndSendEventWithCallback(callback: callback)
     }
     
     //Checkout View Basket Event
