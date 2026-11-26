@@ -67,7 +67,8 @@ class SegmentifyConnectionManager : NSObject, URLSessionDelegate  {
             log("Invalid URL : \(urlString)")
             return
         }
-        let request = URLRequest(url: url)
+        var request = URLRequest(url: url)
+        SegmentifyUserAgent.apply(to: &request)
         log("Request to : \(url)")
         let dataTask = SegmentifyConnectionManager.urlSession.dataTask(with: request) {data, response, error in
             debugPrint("Server responded. Error  : \(String(describing: error))")
@@ -98,6 +99,7 @@ class SegmentifyConnectionManager : NSObject, URLSessionDelegate  {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(requestModel.subdomain, forHTTPHeaderField: "Origin")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        SegmentifyUserAgent.apply(to: &request)
         request.timeoutInterval = TimeInterval(SegmentifyConnectionManager.timeoutInterval)
 
         if requestModel.method == "POST" || requestModel.method == "PUT" {
