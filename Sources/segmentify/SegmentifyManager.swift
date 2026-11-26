@@ -2817,6 +2817,15 @@ public class SegmentifyManager : NSObject {
         }
     }
 
+    /// Back to a process that never configured the SDK.
+    static func testingUnconfigure() {
+        segmentifySharedInstance = nil
+        setup.apiKey = nil
+        setup.dataCenterUrl = nil
+        setup.subDomain = nil
+        setup.dataCenterUrlPush = nil
+    }
+
     func testingPrepareNetworkSession(
         userId: String = "test-user",
         sessionId: String = "test-session"
