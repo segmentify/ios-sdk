@@ -143,11 +143,9 @@ public class SegmentifyManager : NSObject {
         return sessionKeepSecond
     }
 
+    /// Same as `config`: updates the shared manager, which keeps its state.
     public class func setConfig(apiKey: String,dataCenterUrl : String, subDomain : String) {
-        SegmentifyManager.setup.apiKey = apiKey
-        SegmentifyManager.setup.dataCenterUrl = dataCenterUrl
-        SegmentifyManager.setup.subDomain = subDomain
-        segmentifySharedInstance = SegmentifyManager.init()
+        configure(apiKey: apiKey, dataCenterUrl: dataCenterUrl, subDomain: subDomain)
     }
     
     public class func setPushConfig(dataCenterUrlPush : String) {
@@ -162,10 +160,23 @@ public class SegmentifyManager : NSObject {
     }
     
     public class func config(appkey: String, dataCenterUrl: String, subDomain: String) {
-        SegmentifyManager.setup.apiKey = appkey
-        SegmentifyManager.setup.dataCenterUrl = dataCenterUrl
-        SegmentifyManager.setup.subDomain = subDomain
-        _ = sharedManager()
+        configure(apiKey: appkey, dataCenterUrl: dataCenterUrl, subDomain: subDomain)
+    }
+
+    /// The one place the configuration is set. A manager the app took before
+    /// configuring, or is still holding, is the one that gets it.
+    private class func configure(apiKey: String, dataCenterUrl: String, subDomain: String) {
+        setup.apiKey = apiKey
+        setup.dataCenterUrl = dataCenterUrl
+        setup.subDomain = subDomain
+        sharedManager().applyConfiguration()
+    }
+
+    /// Copies the configuration into the request every event starts from.
+    private func applyConfiguration() {
+        eventRequest.apiKey = SegmentifyManager.setup.apiKey ?? ""
+        eventRequest.subdomain = SegmentifyManager.setup.subDomain ?? ""
+        eventRequest.dataCenterUrl = SegmentifyManager.setup.dataCenterUrl ?? ""
     }
     
     var debugMode = false {
@@ -177,34 +188,16 @@ public class SegmentifyManager : NSObject {
     override init() {
         super.init()
         self.eventRequest = SegmentifyRegisterRequest()
-        
-        let appkey = SegmentifyManager.setup.apiKey
-        guard appkey != nil else {
-            print("Error - you must fill appKey before accessing SegmentifyManager.shared")
-            return
-        }
-        eventRequest.apiKey = appkey!
-        
-        let subDomain = SegmentifyManager.setup.subDomain
-        guard subDomain != nil else {
-            print("Error - you must fill subdomain before accessing SegmentifyManager.shared")
-            return
-        }
-        eventRequest.subdomain = subDomain!
-        
-        let dataCenterUrl = SegmentifyManager.setup.dataCenterUrl
-        guard dataCenterUrl != nil else {
-            print("Error - you must fill dataCenterUrl before accessing SegmentifyManager.shared")
-            return
-        }
-        eventRequest.dataCenterUrl = dataCenterUrl!
-        
+        // Taken before config: config fills this in later; events sent
+        // meanwhile fail with SegmentifyNetworkError.notConfigured.
+        applyConfiguration()
+
         eventRequest.sdkVersion = SegmentifyManager.sdkVersion
         eventRequest.token = SegmentifyTools.retrieveUserDefaults(userKey: SegmentifyManager.tokenKey) as? String
         
-        if let lastRegister = SegmentifyTools.retrieveUserDefaults(userKey: SegmentifyManager.registerKey) {
-            let lastRequest = SegmentifyRegisterRequest.init(withJsonString: lastRegister as! String)
-            eventRequest.extra = (lastRequest?.extra)!
+        if let lastRegister = SegmentifyTools.retrieveUserDefaults(userKey: SegmentifyManager.registerKey) as? String,
+           let extra = SegmentifyRegisterRequest(withJsonString: lastRegister)?.extra {
+            eventRequest.extra = extra
         }
         self.currentKey = "RECOMMENDATION_SOURCE_STATIC_ITEMS"
 
@@ -1034,14 +1027,10 @@ public class SegmentifyManager : NSObject {
             return
         }
         
-        let encodedData = try? JSONEncoder().encode(segmentifyObject)
-        let dataCenter  = SegmentifyManager.setup.dataCenterUrlPush
-        let url = URL(string: dataCenter! + "/native/subscription/push?apiKey=" + SegmentifyManager.setup.apiKey!)!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        SegmentifyUserAgent.apply(to: &request)
-        request.httpBody = encodedData
+        guard var request = pushRequest(path: "/native/subscription/push") else {
+            return
+        }
+        request.httpBody = try? JSONEncoder().encode(segmentifyObject)
         
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             guard let _ = data, error == nil else {
@@ -1085,14 +1074,10 @@ public class SegmentifyManager : NSObject {
             sendClick(segmentifyObject: model)
         }
 
-        let encodedData = try? JSONEncoder().encode(segmentifyObject)
-        let dataCenter  = SegmentifyManager.setup.dataCenterUrlPush
-        let url = URL(string: dataCenter!  + "/native/interaction/notification?apiKey=" + SegmentifyManager.setup.apiKey!)!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        SegmentifyUserAgent.apply(to: &request)
-        request.httpBody = encodedData
+        guard var request = pushRequest(path: "/native/interaction/notification") else {
+            return
+        }
+        request.httpBody = try? JSONEncoder().encode(segmentifyObject)
 
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             guard let _ = data, error == nil else {
@@ -1101,6 +1086,22 @@ public class SegmentifyManager : NSObject {
             }
         }
         task.resume()
+    }
+
+    /// A POST to the push endpoint `path`, or nil when the SDK is not configured
+    /// for push yet. A push can be handled before the app configures the SDK.
+    private func pushRequest(path: String) -> URLRequest? {
+        guard let dataCenter = SegmentifyManager.setup.dataCenterUrlPush, !dataCenter.isEmpty,
+              let apiKey = SegmentifyManager.setup.apiKey, !apiKey.isEmpty,
+              let url = URL(string: dataCenter + path + "?apiKey=" + apiKey) else {
+            print("Error - SegmentifyManager.config and setPushConfig must be called before sending push events")
+            return nil
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        SegmentifyUserAgent.apply(to: &request)
+        return request
     }
 
     open func getTrackingParameters()->UtmModel{
@@ -2716,6 +2717,17 @@ public class SegmentifyManager : NSObject {
         callback: ((_ recommendation: [RecommendationModel]) -> Void)?,
         onFailure: ((SegmentifyError) -> Void)? = nil
     ) {
+        if !snapshot.isConfigured {
+            logWaitingEvent("refused, SegmentifyManager.config was not called", snapshot)
+            DispatchQueue.main.async {
+                if let onFailure = onFailure {
+                    onFailure(SegmentifyError.from(SegmentifyNetworkError.notConfigured))
+                } else {
+                    callback?([])
+                }
+            }
+            return
+        }
         sessionLock.lock()
         waitingEvents.append((snapshot: snapshot, callback: callback, onFailure: onFailure))
         var dropped: WaitingEvent?
@@ -2817,6 +2829,15 @@ public class SegmentifyManager : NSObject {
         }
     }
 
+    /// Back to a process that never configured the SDK.
+    static func testingUnconfigure() {
+        segmentifySharedInstance = nil
+        setup.apiKey = nil
+        setup.dataCenterUrl = nil
+        setup.subDomain = nil
+        setup.dataCenterUrlPush = nil
+    }
+
     func testingPrepareNetworkSession(
         userId: String = "test-user",
         sessionId: String = "test-session"
@@ -2903,6 +2924,7 @@ extension SegmentifyManager: CdpSessionResolving, CdpRequestBuilding {
     }
 }
 
+@available(*, deprecated, message: "Not part of the Segmentify SDK; it will be removed in a future release.")
 public func daysBetween(start: Date, end: Date) -> Int {
     return Calendar.current.dateComponents([.day], from: start, to: end).day!
 }

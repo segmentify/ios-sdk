@@ -88,6 +88,11 @@ class SegmentifyConnectionManager : NSObject, URLSessionDelegate  {
             DispatchQueue.main.async { failure(error) }
         }
 
+        guard requestModel.isConfigured else {
+            fail(SegmentifyNetworkError.notConfigured)
+            return
+        }
+
         let urlString = "\(requestModel.dataCenterUrl)\(SegmentifyConnectionManager.baseUrl)\(requestModel.apiKey)"
         guard let url = URL(string: urlString) else {
             fail(SegmentifyNetworkError.invalidURL(urlString))
@@ -167,4 +172,6 @@ enum SegmentifyNetworkError: Error, Equatable {
     /// The server answered 200 but refused the event; `statusCode` is its
     /// reason, for example NO_SESSIONID, INVALID_EVENT, BOT or TIMEOUT.
     case rejected(statusCode: String)
+    /// The request was built before SegmentifyManager.config.
+    case notConfigured
 }

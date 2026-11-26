@@ -61,6 +61,8 @@ import Foundation
             return SegmentifyError(message: "The event could not be serialized")
         case .noResponse:
             return SegmentifyError(message: "The server did not answer with an HTTP response")
+        case .notConfigured:
+            return SegmentifyError(message: "The event was not sent: SegmentifyManager.config must be called before sending events")
         }
     }
 

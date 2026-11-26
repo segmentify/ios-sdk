@@ -15,3 +15,10 @@ protocol SegmentifyRequestProtocol {
     
     func toDictionary() -> Dictionary<AnyHashable, Any>
 }
+
+extension SegmentifyRequestProtocol {
+    /// False for a request built before SegmentifyManager.config.
+    var isConfigured: Bool {
+        !apiKey.isEmpty && !dataCenterUrl.isEmpty
+    }
+}
