@@ -3,7 +3,6 @@
 //  Segmentify
 
 import Foundation
-import UIKit
 
 /// The `User-Agent` header of every request the SDK sends:
 ///
@@ -13,22 +12,23 @@ import UIKit
 /// format is a contract shared with the Android and React Native SDKs.
 enum SegmentifyUserAgent {
     static let headerName = "User-Agent"
+    private static let unknown = "unknown"
 
     /// The header for this app on this device. Built once.
     static let current: String = make(
         sdkVersion: SDKVersion.value,
-        osVersion: UIDevice.current.systemVersion,
+        osVersion: operatingSystemVersion(),
         model: hardwareModel(),
         appId: Bundle.main.bundleIdentifier,
         appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
     )
 
     static func make(sdkVersion: String, osVersion: String, model: String?, appId: String?, appVersion: String?) -> String {
-        var device = "ios; iOS \(token(osVersion))"
+        var device = "ios; iOS \(token(osVersion).nonEmpty ?? unknown)"
         if let model = model.map(text), !model.isEmpty {
             device += "; \(model)"
         }
-        var header = "SegmentifySDK/\(token(sdkVersion)) (\(device))"
+        var header = "SegmentifySDK/\(token(sdkVersion).nonEmpty ?? unknown) (\(device))"
 
         if let appId = appId.map(token), !appId.isEmpty {
             header += " \(appId)"
@@ -57,8 +57,15 @@ enum SegmentifyUserAgent {
     }
 
     /// The operating system version, for example `17.4` or `17.4.1`.
+    /// `UIDevice` is main-thread only, and the header can first be built on a
+    /// background queue.
     static func operatingSystemVersion() -> String {
-        ""
+        let version = ProcessInfo.processInfo.operatingSystemVersion
+        var text = "\(version.majorVersion).\(version.minorVersion)"
+        if version.patchVersion > 0 {
+            text += ".\(version.patchVersion)"
+        }
+        return text
     }
 
     /// The hardware identifier, for example `iPhone14,2`.
@@ -72,4 +79,8 @@ enum SegmentifyUserAgent {
             return identifier + String(UnicodeScalar(UInt8(value)))
         }
     }
+}
+
+private extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
 }
