@@ -108,4 +108,62 @@ final class UserAgentHeaderTests: XCTestCase {
         XCTAssertEqual(seen["key"] ?? nil, SegmentifyUserAgent.current)
         XCTAssertEqual(seen["SEARCH"] ?? nil, SegmentifyUserAgent.current)
     }
+
+    // MARK: Push
+
+    /// The push requests use `URLSession.shared`, not the SDK's session.
+    func testPushRequestsCarryTheHeader() {
+        MockURLProtocol.requestHandler = { [unowned self] request in
+            let path = request.url?.path ?? ""
+            self.lock.lock()
+            self.userAgents[path] = request.value(forHTTPHeaderField: "User-Agent")
+            self.lock.unlock()
+            return (SegmentifyTestSupport.httpResponse(for: request), Data("{}".utf8))
+        }
+        SegmentifyManager.setPushConfig(dataCenterUrlPush: "https://push.segmentify.test")
+        defer { SegmentifyManager.setPushConfig(dataCenterUrlPush: "") }
+
+        let permission = NotificationModel()
+        permission.type = .PERMISSION_INFO
+        permission.deviceToken = "token-1"
+        permission.userId = "user-1"
+        SegmentifyManager.sharedManager().sendNotification(segmentifyObject: permission)
+
+        let view = NotificationModel()
+        view.type = .VIEW
+        view.instanceId = "push-1"
+        SegmentifyManager.sharedManager().sendNotificationInteraction(segmentifyObject: view)
+
+        let subscription = "/native/subscription/push"
+        let interaction = "/native/interaction/notification"
+        waitUntil("both push requests") {
+            self.lock.lock()
+            defer { self.lock.unlock() }
+            return self.userAgents[subscription] != nil && self.userAgents[interaction] != nil
+        }
+        lock.lock()
+        let seen = userAgents
+        lock.unlock()
+        XCTAssertEqual(seen[subscription] ?? nil, SegmentifyUserAgent.current)
+        XCTAssertEqual(seen[interaction] ?? nil, SegmentifyUserAgent.current)
+    }
+
+    // MARK: Model
+
+    /// On the simulator `uname` reports the Mac's architecture (`arm64`); the
+    /// simulated device is in the environment.
+    func testModelOnTheSimulatorIsTheSimulatedDevice() throws {
+        #if targetEnvironment(simulator)
+        let simulated = try XCTUnwrap(ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"])
+        XCTAssertEqual(SegmentifyUserAgent.hardwareModel(), simulated)
+        #else
+        throw XCTSkip("Only meaningful on the simulator")
+        #endif
+    }
+
+    /// The event body's `deviceType` and the header's model are the same value
+    /// from the same code.
+    func testEventDeviceTypeIsTheHeaderModel() {
+        XCTAssertEqual(SegmentifyRegisterRequest().deviceType, SegmentifyUserAgent.hardwareModel())
+    }
 }
