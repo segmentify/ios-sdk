@@ -2623,6 +2623,14 @@ public class SegmentifyManager : NSObject {
         }
     }
 
+    // MARK: Error callback
+
+    /// Runs `send`, one of the `callback:`-only methods, so that its failure
+    /// goes to `onError`.
+    func reportingErrors(to onError: @escaping (SegmentifyError) -> Void, _ send: () -> Void) {
+        send()
+    }
+
     // MARK: Events waiting for a session
 
     /// Keeps the event until a session exists. Every successful session request
